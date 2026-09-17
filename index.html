@@ -1,0 +1,3918 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#08090b">
+<meta name="description" content="MAZO CAMERA — تطبيق كاميرا احترافي يعمل بالكامل داخل المتصفح. صوّرها بطريقتك.">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="MAZO CAMERA">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="format-detection" content="telephone=no">
+<title>MAZO CAMERA — صوّرها بطريقتك</title>
+
+<!--
+  ملاحظة PWA:
+  التطبيق ملف واحد (single-file). ملف manifest و service worker الحقيقيان يحتاجان
+  إلى ملفات منفصلة، لذلك لا يمكن تسجيل service worker من داخل ملف HTML واحد.
+  تم تنفيذ أقرب بديل صالح: وسوم meta للتطبيق القابل للتثبيت (theme-color,
+  apple-mobile-web-app-*, mobile-web-app-capable) + manifest مضمّن عبر data URI
+  (يعمل في بعض المتصفحات)، مع دعم العمل الكامل دون اتصال بعد التحميل الأول لأن
+  كل الأصول (CSS/JS) مضمّنة داخل نفس الملف ولا توجد أي طلبات خارجية.
+
+  ملاحظة الأذونات:
+  يتم طلب أذونات الكاميرا والمايكروفون تلقائيًا عند فتح التطبيق (قبل الضغط على أي زر)
+  عبر navigator.mediaDevices.getUserMedia. بعض المتصفحات (خاصة iOS Safari) لا تسمح
+  بطلب الأذن دون تفاعل مباشر من المستخدم، لذا يظهر زر احتياطي "تشغيل الكاميرا"
+  في حال رفض المتصفح الطلب التلقائي. هذا ليس خطأً في التطبيق بل قيد في المتصفح نفسه.
+-->
+
+<style>
+/* ============================================================
+   MAZO CAMERA — STYLES
+   تصميم سينمائي داكن / زجاجي / مُحسّن للجوال أولاً
+   ============================================================ */
+
+:root{
+  --bg:#07080a;
+  --bg2:#0d0f13;
+  --panel:rgba(18,20,25,.78);
+  --panel-2:rgba(28,31,38,.85);
+  --stroke:rgba(255,255,255,.10);
+  --stroke-2:rgba(255,255,255,.18);
+  --txt:#f2f3f5;
+  --muted:#98a0aa;
+  --gold:#e6c47a;
+  --gold-dim:rgba(230,196,122,.16);
+  --rec:#ff3b30;
+  --ok:#4cd07d;
+  --r-lg:22px;
+  --r-md:16px;
+  --r-sm:12px;
+  --safe-b:env(safe-area-inset-bottom,0px);
+  --safe-t:env(safe-area-inset-top,0px);
+  --shutter:78px;
+}
+
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
+html,body{height:100%;margin:0;padding:0;overflow:hidden;background:var(--bg);}
+body{
+  color:var(--txt);
+  font-family:"Noto Kufi Arabic","Segoe UI",system-ui,-apple-system,"Helvetica Neue",Arial,sans-serif;
+  -webkit-user-select:none;user-select:none;
+  overscroll-behavior:none;
+  touch-action:manipulation;
+}
+button{font-family:inherit;color:inherit;border:0;background:none;cursor:pointer;}
+input,select,textarea{font-family:inherit;}
+.hidden{display:none !important;}
+
+/* ---------- APP SHELL ---------- */
+#app{
+  position:fixed;inset:0;
+  display:flex;flex-direction:column;
+  background:var(--bg);
+}
+
+/* ---------- TOP BAR ---------- */
+#topbar{
+  position:relative;z-index:30;
+  display:flex;align-items:center;gap:10px;
+  padding:calc(8px + var(--safe-t)) 12px 8px;
+  background:linear-gradient(to bottom,rgba(7,8,10,.96),rgba(7,8,10,.62) 70%,transparent);
+}
+.brand{flex:1;text-align:center;line-height:1.05;min-width:0;}
+.brand h1{
+  margin:0;font-size:15px;letter-spacing:.22em;font-weight:700;
+  color:var(--gold);text-shadow:0 0 18px rgba(230,196,122,.25);
+  white-space:nowrap;
+}
+.brand span{display:block;font-size:10.5px;color:var(--muted);margin-top:3px;letter-spacing:.06em;}
+.icon-btn{
+  width:44px;height:44px;flex:0 0 44px;
+  border-radius:14px;
+  background:var(--panel);
+  border:1px solid var(--stroke);
+  backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);
+  display:grid;place-items:center;
+  font-size:19px;line-height:1;
+  transition:transform .12s ease, background .18s ease;
+}
+.icon-btn:active{transform:scale(.9);background:var(--panel-2);}
+
+/* ---------- STAGE ---------- */
+#stage{
+  position:relative;flex:1;min-height:0;
+  display:grid;place-items:center;
+  overflow:hidden;background:#000;
+  touch-action:none;
+}
+#frame{
+  position:relative;overflow:hidden;
+  background:#000;border-radius:2px;
+  will-change:width,height;
+}
+#video{
+  position:absolute;inset:0;width:100%;height:100%;
+  object-fit:cover;background:#000;
+  transform-origin:center center;
+  transition:filter .22s ease, transform .22s cubic-bezier(.22,.61,.36,1);
+}
+#video.mirror{transform:scaleX(-1);}
+#fx,#guides,#stickersLayer{
+  position:absolute;inset:0;width:100%;height:100%;
+  pointer-events:none;
+}
+#stickersLayer{pointer-events:none;overflow:hidden;}
+#stickersLayer .sticker{pointer-events:auto;}
+
+/* stickers */
+.sticker{
+  position:absolute;left:0;top:0;
+  transform-origin:center center;
+  cursor:grab;touch-action:none;
+  will-change:transform;
+}
+.sticker img{width:100%;height:100%;object-fit:contain;pointer-events:none;display:block;}
+.sticker.sel{outline:1.5px dashed rgba(230,196,122,.85);outline-offset:4px;border-radius:6px;}
+
+/* focus ring */
+#focusRing{
+  position:absolute;width:74px;height:74px;margin:-37px 0 0 -37px;
+  border:1.5px solid rgba(255,255,255,.9);
+  border-radius:8px;pointer-events:none;opacity:0;
+  box-shadow:0 0 0 1px rgba(0,0,0,.35), inset 0 0 12px rgba(230,196,122,.15);
+}
+#focusRing.active{animation:focusPop .75s ease forwards;}
+@keyframes focusPop{
+  0%{opacity:0;transform:scale(1.45);}
+  22%{opacity:1;transform:scale(1);}
+  70%{opacity:1;transform:scale(1);}
+  100%{opacity:0;transform:scale(.96);}
+}
+#focusRing.locked{border-color:var(--gold);}
+
+/* countdown */
+#countdown{
+  position:absolute;inset:0;display:grid;place-items:center;
+  font-size:96px;font-weight:700;color:#fff;pointer-events:none;
+  text-shadow:0 6px 40px rgba(0,0,0,.75);opacity:0;
+}
+#countdown.tick{animation:cdPulse .95s ease;}
+@keyframes cdPulse{
+  0%{opacity:0;transform:scale(1.5);}
+  25%{opacity:1;transform:scale(1);}
+  85%{opacity:1;transform:scale(1);}
+  100%{opacity:0;transform:scale(.9);}
+}
+
+/* rec badge */
+#recBadge{
+  position:absolute;top:10px;right:10px;
+  display:none;align-items:center;gap:7px;
+  padding:6px 12px;border-radius:999px;
+  background:rgba(0,0,0,.55);border:1px solid rgba(255,59,48,.5);
+  backdrop-filter:blur(10px);
+  font-size:12.5px;font-variant-numeric:tabular-nums;letter-spacing:.06em;
+}
+#recBadge.on{display:flex;}
+#recBadge i{width:9px;height:9px;border-radius:50%;background:var(--rec);animation:blink 1.1s infinite;}
+@keyframes blink{50%{opacity:.25;}}
+
+/* audio meter */
+#audioMeter{
+  position:absolute;bottom:12px;left:10px;
+  display:none;align-items:flex-end;gap:2px;height:34px;
+}
+#audioMeter.on{display:flex;}
+#audioMeter span{width:3px;background:linear-gradient(to top,#4cd07d,#e6c47a);border-radius:2px;height:3px;transition:height .06s linear;}
+
+/* zoom chips */
+#zoomChips{
+  position:absolute;bottom:14px;left:50%;transform:translateX(-50%);
+  display:flex;gap:8px;padding:6px;border-radius:999px;
+  background:rgba(12,13,16,.62);border:1px solid var(--stroke);
+  backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);
+  z-index:12;
+}
+#zoomChips button{
+  min-width:44px;height:34px;padding:0 10px;border-radius:999px;
+  font-size:12.5px;font-weight:600;color:#c9ced6;
+  transition:all .16s ease;
+}
+#zoomChips button.active{background:var(--gold);color:#111;}
+#zoomChips button:active{transform:scale(.92);}
+
+/* exposure slider (vertical) */
+#evWrap{
+  position:absolute;right:8px;top:50%;transform:translateY(-50%);
+  display:flex;flex-direction:column;align-items:center;gap:6px;
+  padding:10px 6px;border-radius:999px;
+  background:rgba(12,13,16,.55);border:1px solid var(--stroke);
+  backdrop-filter:blur(12px);z-index:12;
+  opacity:.9;
+}
+#evWrap .ev-val{font-size:10.5px;color:var(--gold);font-variant-numeric:tabular-nums;}
+#evSlider{
+  -webkit-appearance:none;appearance:none;
+  writing-mode:vertical-lr;direction:rtl;
+  width:26px;height:130px;background:transparent;
+}
+#evSlider::-webkit-slider-runnable-track{
+  width:4px;border-radius:4px;
+  background:linear-gradient(to top,#3a3f47,#e6c47a);
+}
+#evSlider::-webkit-slider-thumb{
+  -webkit-appearance:none;width:20px;height:20px;border-radius:50%;
+  background:#fff;border:3px solid var(--gold);margin-left:-8px;
+  box-shadow:0 2px 8px rgba(0,0,0,.6);
+}
+#evSlider::-moz-range-track{width:4px;border-radius:4px;background:linear-gradient(to top,#3a3f47,#e6c47a);}
+#evSlider::-moz-range-thumb{width:18px;height:18px;border-radius:50%;background:#fff;border:3px solid var(--gold);}
+
+/* start overlay */
+#startOverlay{
+  position:absolute;inset:0;z-index:40;
+  display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;
+  padding:28px;text-align:center;
+  background:radial-gradient(circle at 50% 40%,#15181e 0%,#07080a 70%);
+}
+#startOverlay .logo{
+  font-size:26px;letter-spacing:.28em;font-weight:700;color:var(--gold);
+}
+#startOverlay .sub{font-size:13px;color:var(--muted);margin-top:-8px;}
+#startBtn{
+  margin-top:8px;padding:16px 40px;border-radius:999px;
+  background:linear-gradient(135deg,#e6c47a,#c9a24d);
+  color:#141414;font-size:16px;font-weight:700;
+  box-shadow:0 10px 34px rgba(230,196,122,.28);
+  transition:transform .14s ease;
+}
+#startBtn:active{transform:scale(.95);}
+#startOverlay .privacy{
+  max-width:330px;font-size:11.5px;line-height:1.8;color:#7c848f;
+  border-top:1px solid var(--stroke);padding-top:14px;margin-top:6px;
+}
+#startOverlay .caps{font-size:10.5px;color:#5d656f;line-height:1.9;}
+
+/* permission error box */
+#permError{
+  position:absolute;inset:0;z-index:45;
+  display:none;flex-direction:column;align-items:center;justify-content:center;gap:14px;
+  padding:30px;text-align:center;background:rgba(7,8,10,.97);
+}
+#permError.on{display:flex;}
+#permError .ico{font-size:40px;}
+#permError h3{margin:0;font-size:16px;color:#ff8a80;}
+#permError p{margin:0;font-size:12.5px;line-height:1.9;color:var(--muted);max-width:320px;}
+#permError button{
+  margin-top:6px;padding:12px 28px;border-radius:999px;
+  background:var(--panel-2);border:1px solid var(--stroke-2);font-size:13.5px;
+}
+
+/* ---------- DOCK ---------- */
+#dock{
+  position:relative;z-index:30;
+  padding:8px 10px calc(10px + var(--safe-b));
+  background:linear-gradient(to top,rgba(7,8,10,.99),rgba(7,8,10,.9) 60%,rgba(7,8,10,.4));
+  backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);
+  border-top:1px solid rgba(255,255,255,.06);
+  transition:transform .3s cubic-bezier(.22,.61,.36,1), opacity .3s ease;
+}
+#dock.hide{transform:translateY(115%);opacity:0;pointer-events:none;}
+#topbar.hide{transform:translateY(-130%);opacity:0;pointer-events:none;}
+#topbar{transition:transform .3s cubic-bezier(.22,.61,.36,1), opacity .3s ease;}
+
+/* tool strip */
+.tools{
+  display:flex;gap:8px;overflow-x:auto;overflow-y:hidden;
+  scrollbar-width:none;padding:2px 2px 10px;
+  -webkit-overflow-scrolling:touch;
+}
+.tools::-webkit-scrollbar{display:none;}
+.tool{
+  flex:0 0 auto;display:flex;flex-direction:column;align-items:center;gap:4px;
+  min-width:60px;padding:8px 10px;border-radius:var(--r-md);
+  background:var(--panel);border:1px solid var(--stroke);
+  font-size:10.5px;color:#cfd4db;white-space:nowrap;
+  transition:all .16s ease;
+}
+.tool .ti{font-size:16px;line-height:1;}
+.tool:active{transform:scale(.93);}
+.tool.active{background:var(--gold-dim);border-color:rgba(230,196,122,.5);color:var(--gold);}
+
+/* mode bar */
+.modes{
+  display:flex;gap:7px;overflow-x:auto;scrollbar-width:none;
+  padding:0 2px 12px;
+  -webkit-overflow-scrolling:touch;
+}
+.modes::-webkit-scrollbar{display:none;}
+.mode{
+  flex:1 0 auto;min-width:88px;
+  padding:9px 14px;border-radius:999px;
+  font-size:12px;font-weight:600;color:#a9b0b9;
+  background:rgba(255,255,255,.045);border:1px solid var(--stroke);
+  white-space:nowrap;transition:all .2s ease;
+}
+.mode.active{
+  background:linear-gradient(135deg,rgba(230,196,122,.95),rgba(201,162,77,.95));
+  color:#141414;border-color:transparent;
+  box-shadow:0 6px 22px rgba(230,196,122,.22);
+}
+
+/* shutter row */
+.shutterRow{
+  display:flex;align-items:center;justify-content:space-between;
+  padding:0 6px;
+}
+.side-btn{
+  width:54px;height:54px;border-radius:50%;
+  background:var(--panel);border:1px solid var(--stroke);
+  display:grid;place-items:center;overflow:hidden;
+  font-size:20px;color:#d5d9df;
+  transition:transform .14s ease, background .18s ease;
+  backdrop-filter:blur(12px);
+}
+.side-btn:active{transform:scale(.9);}
+.side-btn.rec-pause{background:rgba(255,59,48,.18);border-color:rgba(255,59,48,.55);}
+#lastThumb{width:100%;height:100%;object-fit:cover;display:block;}
+#lastThumb.empty{display:none;}
+
+.shutter{
+  position:relative;width:var(--shutter);height:var(--shutter);
+  border-radius:50%;flex:0 0 var(--shutter);
+  display:grid;place-items:center;
+  background:transparent;
+  transition:transform .12s ease;
+}
+.shutter:active{transform:scale(.93);}
+.shutter::before{
+  content:"";position:absolute;inset:0;border-radius:50%;
+  border:3px solid rgba(255,255,255,.85);
+  transition:border-color .2s ease;
+}
+.shutter span{
+  width:60px;height:60px;border-radius:50%;
+  background:#fff;
+  transition:all .22s cubic-bezier(.22,.61,.36,1);
+}
+.shutter.rec::before{border-color:rgba(255,59,48,.85);}
+.shutter.rec span{width:30px;height:30px;border-radius:8px;background:var(--rec);}
+.shutter.photo-mode span{background:#fff;}
+.shutter.busy span{opacity:.4;}
+
+/* ---------- BOTTOM SHEET ---------- */
+.sheet{
+  position:fixed;left:0;right:0;bottom:0;z-index:60;
+  max-height:78vh;display:flex;flex-direction:column;
+  background:linear-gradient(to bottom,rgba(20,22,28,.96),rgba(12,13,17,.99));
+  backdrop-filter:blur(26px);-webkit-backdrop-filter:blur(26px);
+  border-top:1px solid var(--stroke-2);
+  border-radius:var(--r-lg) var(--r-lg) 0 0;
+  transform:translateY(102%);
+  transition:transform .32s cubic-bezier(.22,.61,.36,1);
+  padding-bottom:var(--safe-b);
+  box-shadow:0 -18px 50px rgba(0,0,0,.6);
+}
+.sheet.open{transform:translateY(0);}
+.sheet .grab{
+  width:42px;height:4px;border-radius:4px;background:rgba(255,255,255,.22);
+  margin:10px auto 4px;flex:0 0 auto;
+}
+.sheet header{
+  display:flex;align-items:center;justify-content:space-between;
+  padding:6px 18px 10px;flex:0 0 auto;
+}
+.sheet header h3{margin:0;font-size:14.5px;font-weight:700;color:var(--gold);}
+.sheet header button{
+  width:34px;height:34px;border-radius:50%;background:rgba(255,255,255,.07);
+  display:grid;place-items:center;font-size:15px;
+}
+.sheet .body{
+  overflow-y:auto;-webkit-overflow-scrolling:touch;
+  padding:0 16px 22px;
+}
+
+/* generic controls inside sheets */
+.sec{margin-bottom:18px;}
+.sec-title{font-size:11.5px;color:var(--muted);margin:0 0 9px;letter-spacing:.04em;}
+.chips{display:flex;flex-wrap:wrap;gap:8px;}
+.chip{
+  padding:9px 15px;border-radius:999px;font-size:12.5px;
+  background:rgba(255,255,255,.055);border:1px solid var(--stroke);
+  color:#c8cdd4;transition:all .16s ease;
+}
+.chip:active{transform:scale(.94);}
+.chip.on{background:var(--gold);color:#141414;border-color:transparent;font-weight:700;}
+.chip.mini{padding:7px 12px;font-size:11.5px;}
+
+.slider-row{margin-bottom:14px;}
+.slider-row .lbl{
+  display:flex;justify-content:space-between;align-items:center;
+  font-size:12px;color:#b9bfc7;margin-bottom:7px;
+}
+.slider-row .lbl b{color:var(--gold);font-weight:600;font-variant-numeric:tabular-nums;}
+input[type=range].hz{
+  -webkit-appearance:none;appearance:none;width:100%;height:26px;background:transparent;
+}
+input[type=range].hz::-webkit-slider-runnable-track{
+  height:4px;border-radius:4px;background:rgba(255,255,255,.16);
+}
+input[type=range].hz::-webkit-slider-thumb{
+  -webkit-appearance:none;width:20px;height:20px;border-radius:50%;
+  background:#fff;border:3px solid var(--gold);margin-top:-8px;
+  box-shadow:0 2px 8px rgba(0,0,0,.55);
+}
+input[type=range].hz::-moz-range-track{height:4px;border-radius:4px;background:rgba(255,255,255,.16);}
+input[type=range].hz::-moz-range-thumb{width:18px;height:18px;border-radius:50%;background:#fff;border:3px solid var(--gold);}
+
+.switch-row{
+  display:flex;align-items:center;justify-content:space-between;
+  padding:12px 2px;border-bottom:1px solid rgba(255,255,255,.06);font-size:13px;
+}
+.switch-row:last-child{border-bottom:0;}
+.switch{
+  position:relative;width:48px;height:28px;border-radius:999px;
+  background:rgba(255,255,255,.14);transition:background .2s ease;flex:0 0 48px;
+}
+.switch::after{
+  content:"";position:absolute;top:3px;right:3px;width:22px;height:22px;border-radius:50%;
+  background:#fff;transition:transform .2s cubic-bezier(.22,.61,.36,1);
+}
+.switch.on{background:var(--gold);}
+.switch.on::after{transform:translateX(-20px);}
+
+select.sel{
+  width:100%;padding:11px 12px;border-radius:12px;
+  background:rgba(255,255,255,.06);border:1px solid var(--stroke);
+  color:var(--txt);font-size:12.5px;appearance:none;
+}
+.info-note{
+  font-size:11px;color:#7e868f;line-height:1.85;
+  background:rgba(255,255,255,.035);border:1px solid var(--stroke);
+  border-radius:12px;padding:11px 13px;margin-top:10px;
+}
+
+/* ---------- PREVIEW OVERLAY ---------- */
+.overlay{
+  position:fixed;inset:0;z-index:80;
+  background:#050608;
+  display:none;flex-direction:column;
+}
+.overlay.on{display:flex;}
+.overlay .ov-top{
+  display:flex;align-items:center;justify-content:space-between;
+  padding:calc(10px + var(--safe-t)) 14px 10px;flex:0 0 auto;
+}
+.overlay .ov-top h3{margin:0;font-size:13.5px;font-weight:700;color:var(--gold);}
+.overlay .ov-stage{
+  flex:1;min-height:0;display:grid;place-items:center;padding:8px;
+}
+.overlay .ov-stage img,
+.overlay .ov-stage video{
+  max-width:100%;max-height:100%;border-radius:12px;
+  box-shadow:0 18px 50px rgba(0,0,0,.7);
+}
+.overlay .ov-actions{
+  display:flex;gap:10px;justify-content:center;flex-wrap:wrap;
+  padding:14px 14px calc(20px + var(--safe-b));
+  flex:0 0 auto;
+}
+.ov-btn{
+  display:flex;flex-direction:column;align-items:center;gap:5px;
+  min-width:70px;padding:10px 12px;border-radius:var(--r-md);
+  background:var(--panel);border:1px solid var(--stroke);
+  font-size:11px;color:#c9cfd6;transition:transform .14s ease;
+}
+.ov-btn:active{transform:scale(.93);}
+.ov-btn .oi{font-size:18px;line-height:1;}
+.ov-btn.danger{color:#ff8a80;border-color:rgba(255,59,48,.35);}
+.ov-btn.primary{background:var(--gold);color:#141414;border-color:transparent;font-weight:700;}
+
+/* ---------- GALLERY ---------- */
+#galGrid{
+  display:grid;grid-template-columns:repeat(3,1fr);gap:5px;
+  padding:4px 8px 30px;overflow-y:auto;flex:1;-webkit-overflow-scrolling:touch;
+}
+.gal-item{
+  position:relative;aspect-ratio:1;border-radius:10px;overflow:hidden;
+  background:#14161b;border:1px solid rgba(255,255,255,.06);
+}
+.gal-item img,.gal-item video{width:100%;height:100%;object-fit:cover;display:block;}
+.gal-item .badge{
+  position:absolute;bottom:4px;left:4px;font-size:9.5px;
+  padding:2px 6px;border-radius:6px;background:rgba(0,0,0,.7);color:#e6c47a;
+}
+.gal-item .fav{
+  position:absolute;top:4px;right:4px;font-size:13px;
+  filter:drop-shadow(0 1px 3px rgba(0,0,0,.8));
+}
+.gal-empty{
+  grid-column:1/-1;text-align:center;color:#6a727c;font-size:12.5px;
+  padding:60px 20px;line-height:2;
+}
+
+/* ---------- EDITOR ---------- */
+#editorOverlay{background:#0a0b0e;}
+#edStage{
+  flex:1;min-height:0;position:relative;
+  display:grid;place-items:center;padding:8px;overflow:hidden;
+}
+#edWrap{position:relative;max-width:100%;max-height:100%;line-height:0;}
+#edCanvas{max-width:100%;max-height:100%;border-radius:8px;display:block;}
+#edLayers{position:absolute;inset:0;overflow:hidden;}
+.ed-text{
+  position:absolute;transform-origin:center center;
+  white-space:pre;cursor:grab;touch-action:none;
+  padding:2px 6px;border-radius:4px;
+}
+.ed-text.sel{outline:1.5px dashed rgba(230,196,122,.9);}
+#edTools{
+  flex:0 0 auto;max-height:46vh;overflow-y:auto;-webkit-overflow-scrolling:touch;
+  background:linear-gradient(to bottom,rgba(18,20,25,.95),rgba(10,11,14,.99));
+  border-top:1px solid var(--stroke);
+  padding:10px 14px calc(14px + var(--safe-b));
+}
+.ed-tabs{display:flex;gap:7px;margin-bottom:12px;overflow-x:auto;scrollbar-width:none;}
+.ed-tabs::-webkit-scrollbar{display:none;}
+.ed-tab{
+  padding:8px 14px;border-radius:999px;font-size:12px;
+  background:rgba(255,255,255,.05);border:1px solid var(--stroke);color:#b6bcc4;
+  flex:0 0 auto;
+}
+.ed-tab.on{background:var(--gold);color:#141414;border-color:transparent;font-weight:700;}
+.ed-panel{display:none;}
+.ed-panel.on{display:block;}
+
+/* ---------- TOAST ---------- */
+#toast{
+  position:fixed;left:50%;bottom:calc(120px + var(--safe-b));
+  transform:translate(-50%,20px);
+  z-index:200;max-width:86vw;
+  padding:11px 18px;border-radius:999px;
+  background:rgba(24,26,32,.96);border:1px solid var(--stroke-2);
+  backdrop-filter:blur(14px);
+  font-size:12.5px;line-height:1.6;text-align:center;
+  opacity:0;pointer-events:none;
+  transition:opacity .24s ease, transform .24s cubic-bezier(.22,.61,.36,1);
+  box-shadow:0 12px 34px rgba(0,0,0,.6);
+}
+#toast.show{opacity:1;transform:translate(-50%,0);}
+
+/* ---------- HUD INFO ---------- */
+#hud{
+  position:absolute;top:10px;left:10px;z-index:12;
+  display:flex;flex-direction:column;gap:5px;align-items:flex-start;
+  pointer-events:none;
+}
+#hud .pill{
+  font-size:10px;padding:4px 9px;border-radius:999px;
+  background:rgba(0,0,0,.5);border:1px solid var(--stroke);
+  color:#9aa2ab;backdrop-filter:blur(8px);letter-spacing:.04em;
+  font-variant-numeric:tabular-nums;
+}
+#hud .pill.gold{color:var(--gold);border-color:rgba(230,196,122,.35);}
+
+/* ---------- RESPONSIVE ---------- */
+@media (min-width:600px){
+  :root{--shutter:88px;}
+  .shutter span{width:68px;height:68px;}
+  #galGrid{grid-template-columns:repeat(5,1fr);}
+  .brand h1{font-size:17px;}
+}
+@media (max-height:640px){
+  :root{--shutter:66px;}
+  .shutter span{width:50px;height:50px;}
+  .tool{min-width:54px;padding:6px 8px;}
+  .mode{padding:7px 12px;font-size:11.5px;}
+  #evSlider{height:96px;}
+}
+@media (prefers-reduced-motion:reduce){
+  *{animation-duration:.01ms !important;transition-duration:.01ms !important;}
+}
+</style>
+</head>
+<body>
+
+<div id="app">
+
+  <!-- ============ TOP BAR ============ -->
+  <header id="topbar">
+    <button class="icon-btn" id="aboutBtn" aria-label="حول التطبيق والخصوصية">←</button>
+    <div class="brand">
+      <h1>MAZO CAMERA</h1>
+      <span>صوّرها بطريقتك 📸</span>
+    </div>
+    <button class="icon-btn" id="settingsBtn" aria-label="الإعدادات">⚙</button>
+  </header>
+
+  <!-- ============ STAGE ============ -->
+  <main id="stage">
+    <div id="frame">
+      <video id="video" playsinline autoplay muted></video>
+      <canvas id="fx"></canvas>
+      <svg id="guides" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true"></svg>
+      <div id="stickersLayer"></div>
+      <div id="focusRing"></div>
+      <div id="countdown"></div>
+      <div id="recBadge"><i></i><span id="recTime">00:00</span></div>
+      <div id="audioMeter"></div>
+      <div id="hud"></div>
+    </div>
+
+    <div id="zoomChips" role="group" aria-label="التكبير"></div>
+
+    <div id="evWrap">
+      <span class="ev-val" id="evVal">EV 0</span>
+      <input id="evSlider" type="range" min="-2" max="2" step="0.1" value="0"
+             aria-label="التعريض" orient="vertical">
+    </div>
+
+    <!-- START / PERMISSION -->
+    <div id="startOverlay">
+      <div class="logo">MAZO CAMERA</div>
+      <div class="sub">صوّرها بطريقتك 📸</div>
+      <button id="startBtn">تشغيل الكاميرا</button>
+      <p class="privacy">
+        الكاميرا والمايكروفون يعملان فقط بعد موافقتك.
+        الصور والفيديوهات تبقى على جهازك ولا يتم رفعها إلى أي خادم خارجي.
+        عند فتح التطبيق يتم طلب الأذونات تلقائيًا.
+      </p>
+      <div class="caps" id="capsInfo"></div>
+    </div>
+
+    <div id="permError">
+      <div class="ico">📷</div>
+      <h3 id="permTitle">تعذّر الوصول إلى الكاميرا</h3>
+      <p id="permMsg"></p>
+      <button id="permRetry">إعادة المحاولة</button>
+    </div>
+  </main>
+
+  <!-- ============ DOCK ============ -->
+  <footer id="dock">
+    <div class="tools" id="toolStrip"></div>
+
+    <nav class="modes" id="modeBar" role="tablist" aria-label="أوضاع الكاميرا">
+      <button class="mode active" data-mode="normal" role="tab">الوضع العادي</button>
+      <button class="mode" data-mode="cinema" role="tab">سينمائي 🎬</button>
+      <button class="mode" data-mode="weather" role="tab">جوي 🌧️</button>
+      <button class="mode" data-mode="fantasy" role="tab">خيالي ✨</button>
+    </nav>
+
+    <div class="shutterRow">
+      <button class="side-btn" id="galleryBtn" aria-label="المعرض">
+        <img id="lastThumb" class="empty" alt="">
+        <span id="galIcon">🖼️</span>
+      </button>
+
+      <button class="shutter photo-mode" id="shutterBtn" aria-label="التقاط صورة">
+        <span></span>
+      </button>
+
+      <button class="side-btn hidden" id="pauseBtn" aria-label="إيقاف مؤقت للتسجيل">⏸</button>
+      <button class="side-btn" id="switchBtn" aria-label="تبديل الكاميرا">🔄</button>
+    </div>
+  </footer>
+</div>
+
+<!-- ============ BOTTOM SHEET ============ -->
+<div class="sheet" id="sheet" role="dialog" aria-modal="true" aria-label="لوحة التحكم">
+  <div class="grab"></div>
+  <header>
+    <h3 id="sheetTitle">الإعدادات</h3>
+    <button id="sheetClose" aria-label="إغلاق">✕</button>
+  </header>
+  <div class="body" id="sheetBody"></div>
+</div>
+
+<!-- ============ MEDIA PREVIEW ============ -->
+<div class="overlay" id="previewOverlay" role="dialog" aria-modal="true" aria-label="معاينة الوسائط">
+  <div class="ov-top">
+    <button class="icon-btn" id="pvClose" aria-label="رجوع">←</button>
+    <h3 id="pvTitle">معاينة</h3>
+    <button class="icon-btn" id="pvFav" aria-label="إضافة للمفضلة">☆</button>
+  </div>
+  <div class="ov-stage" id="pvStage"></div>
+  <div class="ov-actions">
+    <button class="ov-btn" id="pvRetake"><span class="oi">↩️</span>إعادة</button>
+    <button class="ov-btn" id="pvEdit"><span class="oi">🎨</span>تحرير</button>
+    <button class="ov-btn" id="pvSave"><span class="oi">⬇️</span>تنزيل</button>
+    <button class="ov-btn" id="pvShare"><span class="oi">📤</span>مشاركة</button>
+    <button class="ov-btn danger" id="pvDelete"><span class="oi">🗑️</span>حذف</button>
+  </div>
+</div>
+
+<!-- ============ GALLERY ============ -->
+<div class="overlay" id="galleryOverlay" role="dialog" aria-modal="true" aria-label="المعرض">
+  <div class="ov-top">
+    <button class="icon-btn" id="galClose" aria-label="رجوع">←</button>
+    <h3>المعرض — محفوظ محليًا على جهازك</h3>
+    <button class="icon-btn" id="galInfo" aria-label="معلومات">ℹ️</button>
+  </div>
+  <div style="padding:0 14px 8px;display:flex;gap:7px;overflow-x:auto;">
+    <button class="chip on" data-gal="all">الكل</button>
+    <button class="chip" data-gal="photo">صور</button>
+    <button class="chip" data-gal="video">فيديو</button>
+    <button class="chip" data-gal="fav">المفضلة ★</button>
+  </div>
+  <div id="galGrid"></div>
+</div>
+
+<!-- ============ EDITOR ============ -->
+<div class="overlay" id="editorOverlay" role="dialog" aria-modal="true" aria-label="محرر الصور">
+  <div class="ov-top">
+    <button class="icon-btn" id="edCancel" aria-label="إلغاء">✕</button>
+    <h3>محرر MAZO</h3>
+    <button class="icon-btn" id="edSave" aria-label="حفظ" style="color:var(--gold)">✓</button>
+  </div>
+  <div id="edStage">
+    <div id="edWrap">
+      <canvas id="edCanvas"></canvas>
+      <div id="edLayers"></div>
+    </div>
+  </div>
+  <div id="edTools">
+    <div class="ed-tabs" id="edTabs">
+      <button class="ed-tab on" data-panel="adj">الضبط</button>
+      <button class="ed-tab" data-panel="filters">الفلاتر</button>
+      <button class="ed-tab" data-panel="text">نص</button>
+      <button class="ed-tab" data-panel="stick">ملصقات</button>
+      <button class="ed-tab" data-panel="crop">قص ودوران</button>
+    </div>
+
+    <div class="ed-panel on" id="panel-adj">
+      <div class="slider-row"><div class="lbl"><span>السطوع</span><b id="v_bri">0</b></div>
+        <input class="hz" type="range" id="e_bri" min="-100" max="100" value="0"></div>
+      <div class="slider-row"><div class="lbl"><span>التباين</span><b id="v_con">0</b></div>
+        <input class="hz" type="range" id="e_con" min="-100" max="100" value="0"></div>
+      <div class="slider-row"><div class="lbl"><span>التشبّع</span><b id="v_sat">0</b></div>
+        <input class="hz" type="range" id="e_sat" min="-100" max="100" value="0"></div>
+      <div class="slider-row"><div class="lbl"><span>حرارة اللون</span><b id="v_tem">0</b></div>
+        <input class="hz" type="range" id="e_tem" min="-100" max="100" value="0"></div>
+      <div class="slider-row"><div class="lbl"><span>الضبابية</span><b id="v_blur">0</b></div>
+        <input class="hz" type="range" id="e_blur" min="0" max="100" value="0"></div>
+      <div class="slider-row"><div class="lbl"><span>حدّة (محاكاة)</span><b id="v_sharp">0</b></div>
+        <input class="hz" type="range" id="e_sharp" min="0" max="100" value="0"></div>
+      <div class="slider-row"><div class="lbl"><span>التظليل الحوافي</span><b id="v_vig">0</b></div>
+        <input class="hz" type="range" id="e_vig" min="0" max="100" value="0"></div>
+      <div class="slider-row"><div class="lbl"><span>الحبيبات</span><b id="v_grain">0</b></div>
+        <input class="hz" type="range" id="e_grain" min="0" max="100" value="0"></div>
+    </div>
+
+    <div class="ed-panel" id="panel-filters">
+      <div class="chips" id="edFilterChips"></div>
+      <div class="slider-row" style="margin-top:14px">
+        <div class="lbl"><span>شدة الفلتر</span><b id="v_fint">100%</b></div>
+        <input class="hz" type="range" id="e_fint" min="0" max="100" value="100">
+      </div>
+    </div>
+
+    <div class="ed-panel" id="panel-text">
+      <input id="edTextInput" class="sel" placeholder="اكتب النص هنا…" style="margin-bottom:10px">
+      <div class="chips" style="margin-bottom:12px">
+        <button class="chip mini" data-tf="size-">A−</button>
+        <button class="chip mini" data-tf="size+">A+</button>
+        <button class="chip mini" data-tf="bold">عريض</button>
+        <button class="chip mini" data-tf="shadow">ظل</button>
+        <button class="chip mini" data-tf="bg">خلفية</button>
+        <button class="chip mini" data-tf="rot-">↺</button>
+        <button class="chip mini" data-tf="rot+">↻</button>
+        <button class="chip mini" data-tf="del">🗑️ حذف</button>
+      </div>
+      <div class="slider-row"><div class="lbl"><span>شفافية النص</span><b id="v_top">100%</b></div>
+        <input class="hz" type="range" id="e_top" min="10" max="100" value="100"></div>
+      <button class="chip on" id="edAddText" style="width:100%;padding:12px">＋ إضافة النص إلى الصورة</button>
+    </div>
+
+    <div class="ed-panel" id="panel-stick">
+      <div class="chips" id="edStickerChips"></div>
+      <div class="info-note">اسحب الملصق بإصبعك لتغيير موضعه داخل الصورة.</div>
+    </div>
+
+    <div class="ed-panel" id="panel-crop">
+      <p class="sec-title">نسبة القص (مركزي)</p>
+      <div class="chips" id="edCropChips"></div>
+      <p class="sec-title" style="margin-top:16px">التحويلات</p>
+      <div class="chips">
+        <button class="chip" data-tr="rot90">↻ تدوير 90°</button>
+        <button class="chip" data-tr="fliph">⇄ قلب أفقي</button>
+        <button class="chip" data-tr="flipv">⇅ قلب رأسي</button>
+        <button class="chip" data-tr="reset">↺ إعادة تعيين</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ============ ABOUT / PRIVACY ============ -->
+<div class="sheet" id="aboutSheet" role="dialog" aria-modal="true" aria-label="حول التطبيق">
+  <div class="grab"></div>
+  <header>
+    <h3>حول MAZO CAMERA</h3>
+    <button id="aboutClose" aria-label="إغلاق">✕</button>
+  </header>
+  <div class="body">
+    <div class="sec">
+      <p class="sec-title">الخصوصية</p>
+      <div class="info-note">
+        الكاميرا والمايكروفون يعملان فقط بعد موافقة المستخدم.
+        الصور والفيديوهات تبقى على جهازك ولا يتم رفعها إلى خادم خارجي بواسطة التطبيق.
+        يتم تخزين الوسائط محليًا داخل متصفحك باستخدام IndexedDB، ويمكنك حذفها في أي وقت.
+        عند فتح التطبيق يتم طلب الأذونات تلقائيًا لتسريع التجربة.
+      </div>
+    </div>
+    <div class="sec">
+      <p class="sec-title">العلامة المائية</p>
+      <div class="info-note">
+        كل صورة يتم التقاطها تحمل علامة مائية مميزة بشعار MAZO CAMERA
+        في الزاوية السفلية اليسرى، بتصميم أنيق لا يؤثر على جودة الصورة.
+      </div>
+    </div>
+    <div class="sec">
+      <p class="sec-title">التقنيات المستخدمة</p>
+      <div class="info-note">
+        HTML5 · CSS3 · JavaScript (Vanilla)<br>
+        getUserMedia · MediaRecorder · Canvas 2D · IndexedDB · Web Share API
+      </div>
+    </div>
+    <div class="sec">
+      <p class="sec-title">حدود تقنية حقيقية (بدون ادّعاءات)</p>
+      <div class="info-note">
+        • التحكم في الفلاش (Torch) والتركيز اليدوي والتعريض الحقيقي يعتمد على دعم الجهاز والمتصفح.
+        عند عدم التوفّر يستخدم التطبيق بدائل برمجية (Canvas / CSS) ويوضّح ذلك.<br>
+        • توازن اللون الأبيض و"التثبيت" يتمّان كمحاكاة لونية وليست تحكمًا في العتاد.<br>
+        • الصيغ المتاحة للتسجيل تُحدَّد عبر MediaRecorder.isTypeSupported().<br>
+        • بعض المتصفحات (خاصة iOS Safari) لا تسمح بطلب أذونات الكاميرا/المايكروفون دون تفاعل مباشر
+        من المستخدم، لذا يظهر زر احتياطي "تشغيل الكاميرا".<br>
+        • التطبيق لا يستطيع تثبيت نفسه كـ PWA كاملة من ملف واحد (يحتاج manifest و service worker منفصلين).
+      </div>
+    </div>
+    <div class="sec">
+      <p class="sec-title">الإصدار</p>
+      <div class="info-note">MAZO CAMERA v1.1 — صوّرها بطريقتك 📸</div>
+    </div>
+  </div>
+</div>
+
+<script>
+"use strict";
+/* ============================================================================
+   MAZO CAMERA — APPLICATION SCRIPT
+   بنية الملف: أدوات → حالة → كاميرا → فلاتر → مؤثرات → أدلة → التقاط →
+   تسجيل → معاينة → محرر → معرض → إعدادات → إيماءات → تهيئة
+   ========================================================================== */
+
+/* ============================ 1. UTILITIES ============================== */
+const $  = (s, r = document) => r.querySelector(s);
+const $$ = (s, r = document) => Array.from(r.querySelectorAll(s));
+const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+const fmtTime = s => {
+  s = Math.max(0, Math.floor(s));
+  const m = String(Math.floor(s / 60)).padStart(2, '0');
+  const ss = String(s % 60).padStart(2, '0');
+  return `${m}:${ss}`;
+};
+
+let _toastEl = null;
+function toast(msg, ms = 2400) {
+  if (!_toastEl) { _toastEl = document.createElement('div'); _toastEl.id = 'toast'; document.body.appendChild(_toastEl); }
+  _toastEl.textContent = msg;
+  _toastEl.classList.add('show');
+  clearTimeout(_toastEl._t);
+  _toastEl._t = setTimeout(() => _toastEl.classList.remove('show'), ms);
+}
+
+function haptic(ms = 12) {
+  if (!State.settings.haptics) return;
+  try { navigator.vibrate && navigator.vibrate(ms); } catch (_) {}
+}
+
+/* ============================ 2. STATE ================================== */
+const AR = {
+  '4:3':  { v: 4 / 3,  label: '4:3'  },
+  '16:9': { v: 16 / 9, label: '16:9' },
+  '1:1':  { v: 1,      label: '1:1'  },
+  '3:2':  { v: 3 / 2,  label: '3:2'  },
+  '21:9': { v: 21 / 9, label: '21:9' }
+};
+
+const State = {
+  mode: 'normal',
+  facing: 'environment',
+  stream: null,
+  videoTrack: null,
+  audioTrack: null,
+  devices: [],
+  deviceId: null,
+  capabilities: {},
+  hwZoom: false,
+  zoom: 1,
+  exposure: 0,
+  hwExposure: false,
+  torch: 'off',
+  torchSupported: false,
+  focusLocked: false,
+  exposureLocked: false,
+  timer: 0,
+  grid: new Set(['thirds']),
+  aspect: '4:3',
+  filter: 'natural',
+  filterIntensity: 100,
+  quality: 0.92,
+  videoQuality: 8000000,
+  fps: 30,
+  mirrorSelfie: true,
+  audio: true,
+  stabilization: false,
+  beauty: 0,
+  recording: false,
+  paused: false,
+  recorder: null,
+  chunks: [],
+  recStart: 0,
+  recTimer: null,
+  uiHidden: false,
+  permissionGranted: false,
+  weather: {
+    preset: 'none',
+    rain: false,
+    exposure: 0, contrast: 0, saturation: 0, temperature: 0, highlights: 0, shadows: 0
+  },
+  cinema: {
+    color: 'natural',
+    wb: 'auto',
+    ratio: '16:9',
+    stabilization: false
+  },
+  fantasy: {
+    effect: 'none',
+    opacity: 1,
+    size: 1,
+    rotation: 0,
+    speed: 1
+  },
+  settings: {
+    resolution: 'auto',
+    aspect: '4:3',
+    grid: 'thirds',
+    timer: 0,
+    flash: 'off',
+    mirror: true,
+    saveQuality: 'high',
+    videoQuality: 'high',
+    audio: true,
+    haptics: true,
+    uiSound: false,
+    theme: 'dark',
+    language: 'ar',
+    watermark: true
+  }
+};
+
+/* ============================ 3. DOM REFS =============================== */
+const el = {
+  app: $('#app'),
+  topbar: $('#topbar'),
+  stage: $('#stage'),
+  frame: $('#frame'),
+  video: $('#video'),
+  fx: $('#fx'),
+  guides: $('#guides'),
+  stickers: $('#stickersLayer'),
+  focusRing: $('#focusRing'),
+  countdown: $('#countdown'),
+  recBadge: $('#recBadge'),
+  recTime: $('#recTime'),
+  audioMeter: $('#audioMeter'),
+  hud: $('#hud'),
+  zoomChips: $('#zoomChips'),
+  evSlider: $('#evSlider'),
+  evVal: $('#evVal'),
+  startOverlay: $('#startOverlay'),
+  startBtn: $('#startBtn'),
+  capsInfo: $('#capsInfo'),
+  permError: $('#permError'),
+  permTitle: $('#permTitle'),
+  permMsg: $('#permMsg'),
+  permRetry: $('#permRetry'),
+  dock: $('#dock'),
+  toolStrip: $('#toolStrip'),
+  modeBar: $('#modeBar'),
+  galleryBtn: $('#galleryBtn'),
+  lastThumb: $('#lastThumb'),
+  galIcon: $('#galIcon'),
+  shutterBtn: $('#shutterBtn'),
+  pauseBtn: $('#pauseBtn'),
+  switchBtn: $('#switchBtn'),
+  settingsBtn: $('#settingsBtn'),
+  aboutBtn: $('#aboutBtn'),
+  sheet: $('#sheet'),
+  sheetTitle: $('#sheetTitle'),
+  sheetBody: $('#sheetBody'),
+  sheetClose: $('#sheetClose'),
+  aboutSheet: $('#aboutSheet'),
+  aboutClose: $('#aboutClose'),
+  previewOverlay: $('#previewOverlay'),
+  pvStage: $('#pvStage'),
+  pvTitle: $('#pvTitle'),
+  pvClose: $('#pvClose'),
+  pvFav: $('#pvFav'),
+  pvRetake: $('#pvRetake'),
+  pvEdit: $('#pvEdit'),
+  pvSave: $('#pvSave'),
+  pvShare: $('#pvShare'),
+  pvDelete: $('#pvDelete'),
+  galleryOverlay: $('#galleryOverlay'),
+  galGrid: $('#galGrid'),
+  galClose: $('#galClose'),
+  galInfo: $('#galInfo'),
+  editorOverlay: $('#editorOverlay'),
+  edCanvas: $('#edCanvas'),
+  edWrap: $('#edWrap'),
+  edLayers: $('#edLayers'),
+  edCancel: $('#edCancel'),
+  edSave: $('#edSave')
+};
+
+const ctxFx = el.fx.getContext('2d');
+
+/* ============================ 4. INDEXEDDB (GALLERY) ==================== */
+/* GALLERY — تخزين محلي بالكامل، لا يوجد أي رفع للخادم */
+const MediaDB = (() => {
+  const DB_NAME = 'mazo-camera-db';
+  const STORE = 'media';
+  let dbPromise = null;
+
+  function open() {
+    if (dbPromise) return dbPromise;
+    dbPromise = new Promise((resolve, reject) => {
+      if (!('indexedDB' in window)) { reject(new Error('IndexedDB غير مدعوم')); return; }
+      const req = indexedDB.open(DB_NAME, 1);
+      req.onupgradeneeded = e => {
+        const db = e.target.result;
+        if (!db.objectStoreNames.contains(STORE)) {
+          const st = db.createObjectStore(STORE, { keyPath: 'id', autoIncrement: true });
+          st.createIndex('created', 'created');
+        }
+      };
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => reject(req.error || new Error('فشل فتح قاعدة البيانات'));
+    });
+    return dbPromise;
+  }
+
+  async function add(rec) {
+    const db = await open();
+    return new Promise((res, rej) => {
+      const tx = db.transaction(STORE, 'readwrite');
+      const rq = tx.objectStore(STORE).add(rec);
+      rq.onsuccess = () => res(rq.result);
+      rq.onerror = () => rej(rq.error);
+    });
+  }
+
+  async function all() {
+    const db = await open();
+    return new Promise((res, rej) => {
+      const tx = db.transaction(STORE, 'readonly');
+      const rq = tx.objectStore(STORE).getAll();
+      rq.onsuccess = () => res((rq.result || []).sort((a, b) => b.created - a.created));
+      rq.onerror = () => rej(rq.error);
+    });
+  }
+
+  async function get(id) {
+    const db = await open();
+    return new Promise((res, rej) => {
+      const tx = db.transaction(STORE, 'readonly');
+      const rq = tx.objectStore(STORE).get(id);
+      rq.onsuccess = () => res(rq.result);
+      rq.onerror = () => rej(rq.error);
+    });
+  }
+
+  async function put(rec) {
+    const db = await open();
+    return new Promise((res, rej) => {
+      const tx = db.transaction(STORE, 'readwrite');
+      const rq = tx.objectStore(STORE).put(rec);
+      rq.onsuccess = () => res(rq.result);
+      rq.onerror = () => rej(rq.error);
+    });
+  }
+
+  async function remove(id) {
+    const db = await open();
+    return new Promise((res, rej) => {
+      const tx = db.transaction(STORE, 'readwrite');
+      const rq = tx.objectStore(STORE).delete(id);
+      rq.onsuccess = () => res();
+      rq.onerror = () => rej(rq.error);
+    });
+  }
+
+  return { add, all, get, put, remove };
+})();
+
+/* ============================ 5. FILTER ENGINE ========================== */
+const FILTERS = {
+  natural:   { ar: 'طبيعي',     p: {} },
+  cinema:    { ar: 'سينما',     p: { contrast: 1.18, saturation: .95, hue: -10, brightness: .98 } },
+  film:      { ar: 'فيلم',      p: { contrast: 1.10, saturation: .85, sepia: .16, brightness: 1.02 } },
+  warm:      { ar: 'دافئ',      p: { sepia: .22, saturation: 1.18, hue: -8, brightness: 1.02 } },
+  cold:      { ar: 'بارد',      p: { hue: 12, saturation: 1.05, brightness: 1.02, contrast: 1.04 } },
+  vintage:   { ar: 'كلاسيكي',   p: { sepia: .38, contrast: 1.06, saturation: .88, brightness: 1.03 } },
+  noir:      { ar: 'أبيض وأسود', p: { grayscale: 1, contrast: 1.28, brightness: .98 } },
+  dramatic:  { ar: 'درامي',     p: { contrast: 1.38, saturation: .88, brightness: .95 } },
+  sunset:    { ar: 'غروب',      p: { sepia: .26, saturation: 1.35, hue: -16, brightness: 1.03 } },
+  storm:     { ar: 'عاصفة',     p: { contrast: 1.32, saturation: .78, brightness: .90, hue: 10 } },
+  rain:      { ar: 'مطر',       p: { contrast: 1.14, saturation: .90, brightness: .95, hue: 8 } },
+  dream:     { ar: 'حلم',       p: { brightness: 1.08, saturation: 1.16, blur: .5, contrast: .96 } },
+  fantasy:   { ar: 'خيال',      p: { saturation: 1.42, hue: 16, brightness: 1.05, contrast: 1.06 } }
+};
+
+function buildFilterString(p, intensity = 100) {
+  const t = clamp(intensity / 100, 0, 1);
+  const L = (a, b) => a + (b - a) * t;
+  const parts = [];
+  parts.push(`brightness(${L(1, p.brightness ?? 1).toFixed(3)})`);
+  parts.push(`contrast(${L(1, p.contrast ?? 1).toFixed(3)})`);
+  parts.push(`saturate(${L(1, p.saturation ?? 1).toFixed(3)})`);
+  if (p.sepia)     parts.push(`sepia(${L(0, p.sepia).toFixed(3)})`);
+  if (p.grayscale) parts.push(`grayscale(${L(0, p.grayscale).toFixed(3)})`);
+  if (p.hue)       parts.push(`hue-rotate(${L(0, p.hue).toFixed(2)}deg)`);
+  if (p.blur)      parts.push(`blur(${L(0, p.blur).toFixed(2)}px)`);
+  return parts.join(' ');
+}
+
+function currentFilterString() {
+  const base = FILTERS[State.filter] ? FILTERS[State.filter].p : {};
+  const p = Object.assign({}, base);
+  const w = State.weather;
+
+  if (State.mode === 'weather') {
+    p.contrast   = (p.contrast   ?? 1) * (1 + w.contrast / 100);
+    p.saturation = (p.saturation ?? 1) * (1 + w.saturation / 100);
+    p.brightness = (p.brightness ?? 1) * (1 + w.exposure / 100);
+    const temp = w.temperature / 100;
+    if (temp > 0) p.sepia = (p.sepia ?? 0) + temp * .30;
+    if (temp < 0) p.hue   = (p.hue   ?? 0) + temp * 14;
+  }
+
+  if (!State.hwExposure && State.exposure !== 0) {
+    p.brightness = (p.brightness ?? 1) * (1 + State.exposure * 0.16);
+    p.contrast   = (p.contrast ?? 1) * (1 - Math.abs(State.exposure) * 0.045);
+  }
+
+  if (State.facing === 'user' && State.beauty > 0) {
+    p.blur = (p.blur ?? 0) + (State.beauty / 100) * 1.1;
+    p.brightness = (p.brightness ?? 1) * (1 + (State.beauty / 100) * .05);
+  }
+
+  if (State.mode === 'cinema') {
+    const wb = State.cinema.wb;
+    if (wb === 'daylight')     { p.sepia = (p.sepia ?? 0) + .06; }
+    if (wb === 'cloudy')       { p.sepia = (p.sepia ?? 0) + .16; p.saturation = (p.saturation ?? 1) * 1.05; }
+    if (wb === 'tungsten')     { p.hue = (p.hue ?? 0) - 16; p.saturation = (p.saturation ?? 1) * 1.06; }
+    if (wb === 'fluorescent')  { p.hue = (p.hue ?? 0) + 18; }
+  }
+
+  return buildFilterString(p, State.filterIntensity);
+}
+
+function applyPreviewFilter() {
+  el.video.style.filter = currentFilterString();
+}
+
+/* ============================ 6. WATERMARK ============================== */
+/* WATERMARK — علامة مائية مميزة لكل صورة: شعار MAZO CAMERA + النص العربي
+   تُرسم على الكانفس مباشرة قبل الحفظ، وتُترك مساحة شفافة أنيقة. */
+function drawWatermark(ctx, W, H) {
+  if (!State.settings.watermark) return;
+
+  const base = Math.min(W, H);
+  const pad  = base * 0.035;
+  const logoH = base * 0.085;
+  const font1 = Math.max(11, Math.round(base * 0.026));
+  const font2 = Math.max(8,  Math.round(base * 0.017));
+
+  ctx.save();
+
+  // شريط خلفي متدرّج شفاف لعزل العلامة عن الصورة (أنيق وغير مزعج)
+  const grad = ctx.createLinearGradient(0, H - logoH * 2.4, 0, H);
+  grad.addColorStop(0, 'rgba(0,0,0,0)');
+  grad.addColorStop(.55, 'rgba(0,0,0,.28)');
+  grad.addColorStop(1, 'rgba(0,0,0,.52)');
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, H - logoH * 2.4, W, logoH * 2.4);
+
+  // خط ذهبي رقيق أعلى العلامة
+  ctx.strokeStyle = 'rgba(230,196,122,.85)';
+  ctx.lineWidth = Math.max(1, base * 0.0016);
+  ctx.beginPath();
+  ctx.moveTo(pad, H - logoH * 1.75);
+  ctx.lineTo(pad + base * 0.30, H - logoH * 1.75);
+  ctx.stroke();
+
+  // شعار دائري صغير (عدسة) على اليسار
+  const cx = pad + logoH * 0.45;
+  const cy = H - logoH * 0.95;
+  const r  = logoH * 0.42;
+
+  // حلقة خارجية ذهبية
+  ctx.beginPath();
+  ctx.arc(cx, cy, r, 0, Math.PI * 2);
+  ctx.strokeStyle = 'rgba(230,196,122,.95)';
+  ctx.lineWidth = Math.max(1, base * 0.0022);
+  ctx.stroke();
+
+  // عدسة داخلية متدرجة
+  const lg = ctx.createRadialGradient(cx - r * .25, cy - r * .25, r * .05, cx, cy, r * .95);
+  lg.addColorStop(0, 'rgba(255,255,255,.95)');
+  lg.addColorStop(.35, 'rgba(230,196,122,.85)');
+  lg.addColorStop(.7, 'rgba(60,45,20,.9)');
+  lg.addColorStop(1, 'rgba(10,8,4,.95)');
+  ctx.beginPath();
+  ctx.arc(cx, cy, r * 0.68, 0, Math.PI * 2);
+  ctx.fillStyle = lg;
+  ctx.fill();
+
+  // لمعة صغيرة على العدسة
+  ctx.beginPath();
+  ctx.arc(cx - r * .22, cy - r * .24, r * .13, 0, Math.PI * 2);
+  ctx.fillStyle = 'rgba(255,255,255,.85)';
+  ctx.fill();
+
+  // نجمة صغيرة أعلى يمين الشعار
+  ctx.save();
+  ctx.translate(cx + r * 1.25, cy - r * 1.15);
+  ctx.fillStyle = 'rgba(230,196,122,.95)';
+  ctx.beginPath();
+  const sr = r * 0.30;
+  for (let i = 0; i < 8; i++) {
+    const ang = (i / 8) * Math.PI * 2;
+    const rad = i % 2 === 0 ? sr : sr * 0.38;
+    const px = Math.cos(ang) * rad, py = Math.sin(ang) * rad;
+    i ? ctx.lineTo(px, py) : ctx.moveTo(px, py);
+  }
+  ctx.closePath();
+  ctx.fill();
+  ctx.restore();
+
+  // نص MAZO CAMERA
+  const textX = cx + r * 1.9;
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'alphabetic';
+
+  ctx.font = `700 ${font1}px "Noto Kufi Arabic","Segoe UI",system-ui,sans-serif`;
+  ctx.fillStyle = 'rgba(255,255,255,.96)';
+  ctx.shadowColor = 'rgba(0,0,0,.65)';
+  ctx.shadowBlur = base * 0.008;
+  ctx.shadowOffsetY = base * 0.0015;
+  ctx.fillText('MAZO CAMERA', textX, cy + font1 * 0.10);
+
+  // النص العربي
+  ctx.font = `500 ${font2}px "Noto Kufi Arabic","Segoe UI",system-ui,sans-serif`;
+  ctx.fillStyle = 'rgba(230,196,122,.95)';
+  ctx.shadowBlur = base * 0.006;
+  ctx.fillText('صوّرها بطريقتك 📸', textX, cy + font1 * 0.10 + font2 * 1.35);
+
+  // تاريخ ووقت لطيف على أقصى اليسار (اختياري وأنيق)
+  ctx.textAlign = 'right';
+  ctx.font = `400 ${font2 * 0.9}px "Noto Kufi Arabic",system-ui,sans-serif`;
+  ctx.fillStyle = 'rgba(255,255,255,.55)';
+  const d = new Date();
+  const stamp = `${d.getFullYear()}/${String(d.getMonth() + 1).padStart(2, '0')}/${String(d.getDate()).padStart(2, '0')}  ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+  ctx.fillText(stamp, W - pad, H - pad * 0.6);
+
+  ctx.restore();
+}
+
+/* ============================ 7. FANTASY / WEATHER FX =================== */
+const FX_TYPES = {
+  none:      { ar: 'بدون',        count: 0 },
+  stars:     { ar: 'نجوم ⭐',      count: 46, kind: 'char', chars: ['✦', '★', '✧'], size: [8, 22], speed: 1.0 },
+  hearts:    { ar: 'قلوب ❤️',     count: 30, kind: 'char', chars: ['❤', '💖', '💗'], size: [12, 30], speed: .8 },
+  circles:   { ar: 'دوائر',       count: 26, kind: 'circle', size: [6, 28], speed: .7 },
+  sparkles:  { ar: 'بريق ✨',     count: 60, kind: 'sparkle', size: [2, 7], speed: 1.5 },
+  clouds:    { ar: 'سحاب ☁️',     count: 12, kind: 'char', chars: ['☁', '☁️'], size: [30, 70], speed: .25 },
+  fire:      { ar: 'نار 🔥',      count: 34, kind: 'fire', size: [8, 22], speed: 1.6 },
+  lightning: { ar: 'برق ⚡',      count: 14, kind: 'char', chars: ['⚡'], size: [18, 40], speed: 2.2 },
+  emoji:     { ar: 'إيموجي 😄',   count: 26, kind: 'char', chars: ['😄','😎','🌈','🍭','🦋','🌸','🎈','🐱'], size: [16, 34], speed: .9 },
+  shapes:    { ar: 'أشكال هندسية', count: 22, kind: 'shape', size: [10, 34], speed: .8 },
+  rain:      { ar: 'مطر 🌧️',      count: 130, kind: 'rain', size: [10, 26], speed: 9 }
+};
+
+const FX = { parts: [], raf: 0, running: false, t: 0 };
+
+function fxResize() {
+  const r = el.frame.getBoundingClientRect();
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  const w = Math.max(1, Math.round(r.width * dpr));
+  const h = Math.max(1, Math.round(r.height * dpr));
+  if (el.fx.width !== w || el.fx.height !== h) {
+    el.fx.width = w; el.fx.height = h;
+  }
+  ctxFx.setTransform(dpr, 0, 0, dpr, 0, 0);
+}
+
+function fxActiveType() {
+  if (State.mode === 'fantasy' && State.fantasy.effect !== 'none') return State.fantasy.effect;
+  if (State.mode === 'weather' && State.weather.rain) return 'rain';
+  return null;
+}
+
+function fxSpawn(type) {
+  const def = FX_TYPES[type];
+  if (!def || !def.count) { FX.parts = []; return; }
+  const r = el.frame.getBoundingClientRect();
+  const W = r.width || 320, H = r.height || 480;
+  const n = def.count;
+  FX.parts = [];
+  for (let i = 0; i < n; i++) FX.parts.push(makeParticle(def, W, H, type, true));
+}
+
+function makeParticle(def, W, H, type, initial) {
+  const sz = def.size[0] + Math.random() * (def.size[1] - def.size[0]);
+  const p = {
+    type, kind: def.kind,
+    x: Math.random() * W,
+    y: initial ? Math.random() * H : (def.kind === 'rain' || def.kind === 'fire' ? -20 : H + 20),
+    size: sz,
+    rot: Math.random() * Math.PI * 2,
+    vr: (Math.random() - .5) * .04,
+    vy: (def.speed || 1) * (.5 + Math.random()),
+    vx: (Math.random() - .5) * (def.speed || 1) * .5,
+    alpha: .45 + Math.random() * .5,
+    hue: Math.random() * 360,
+    char: def.chars ? def.chars[(Math.random() * def.chars.length) | 0] : null,
+    phase: Math.random() * Math.PI * 2
+  };
+  if (def.kind === 'rain') { p.vy = 12 + Math.random() * 14; p.vx = -1.5; p.len = 12 + Math.random() * 20; }
+  if (def.kind === 'fire') { p.y = H + 10; p.vy = -(1.5 + Math.random() * 2.4); p.vx = (Math.random() - .5) * .8; }
+  if (def.kind === 'clouds') { p.y = Math.random() * H * .6; }
+  return p;
+}
+
+function fxStep(dt) {
+  const r = el.frame.getBoundingClientRect();
+  const W = r.width || 320, H = r.height || 480;
+  const def = FX_TYPES[fxActiveType()] || {};
+  const speedMul = State.mode === 'fantasy' ? State.fantasy.speed : 1;
+  const sizeMul  = State.mode === 'fantasy' ? State.fantasy.size : 1;
+  const opMul    = State.mode === 'fantasy' ? State.fantasy.opacity : 1;
+  const rotBase  = State.mode === 'fantasy' ? State.fantasy.rotation : 0;
+
+  ctxFx.clearRect(0, 0, W, H);
+  ctxFx.save();
+
+  for (const p of FX.parts) {
+    p.x += p.vx * speedMul * dt * 60 * 0.016;
+    p.y += p.vy * speedMul * dt * 60 * 0.016;
+    p.rot += p.vr * speedMul;
+
+    if (p.kind === 'fire') {
+      if (p.y < -30 || p.alpha <= 0) Object.assign(p, makeParticle(def, W, H, p.type, false));
+    } else if (p.vy > 0 || p.kind === 'rain') {
+      if (p.y > H + 40) Object.assign(p, makeParticle(def, W, H, p.type, false));
+    } else {
+      if (p.y < -60) Object.assign(p, makeParticle(def, W, H, p.type, false));
+    }
+    if (p.x < -60) p.x = W + 40;
+    if (p.x > W + 60) p.x = -40;
+
+    ctxFx.save();
+    ctxFx.globalAlpha = clamp(p.alpha * opMul, 0, 1);
+    const s = p.size * sizeMul;
+
+    if (p.kind === 'char') {
+      ctxFx.translate(p.x, p.y);
+      ctxFx.rotate(p.rot + rotBase * Math.PI / 180);
+      ctxFx.font = `${s}px "Noto Color Emoji","Segoe UI Emoji",system-ui,serif`;
+      ctxFx.textAlign = 'center';
+      ctxFx.textBaseline = 'middle';
+      ctxFx.fillText(p.char || '✦', 0, 0);
+    } else if (p.kind === 'circle') {
+      ctxFx.translate(p.x, p.y);
+      ctxFx.beginPath();
+      ctxFx.arc(0, 0, s / 2, 0, Math.PI * 2);
+      ctxFx.strokeStyle = `hsla(${p.hue},70%,70%,.9)`;
+      ctxFx.lineWidth = 1.6;
+      ctxFx.stroke();
+    } else if (p.kind === 'sparkle') {
+      const tw = .5 + .5 * Math.sin(FX.t * 4 + p.phase);
+      ctxFx.translate(p.x, p.y);
+      const g = ctxFx.createRadialGradient(0, 0, 0, 0, 0, s * 3);
+      g.addColorStop(0, `rgba(255,255,255,${.95 * tw})`);
+      g.addColorStop(.4, `rgba(230,196,122,${.5 * tw})`);
+      g.addColorStop(1, 'rgba(230,196,122,0)');
+      ctxFx.fillStyle = g;
+      ctxFx.beginPath();
+      ctxFx.arc(0, 0, s * 3, 0, Math.PI * 2);
+      ctxFx.fill();
+    } else if (p.kind === 'shape') {
+      ctxFx.translate(p.x, p.y);
+      ctxFx.rotate(p.rot + rotBase * Math.PI / 180);
+      ctxFx.fillStyle = `hsla(${p.hue},65%,65%,.55)`;
+      const sides = 3 + ((p.hue | 0) % 4);
+      ctxFx.beginPath();
+      for (let i = 0; i < sides; i++) {
+        const a = (i / sides) * Math.PI * 2;
+        const px = Math.cos(a) * s / 2, py = Math.sin(a) * s / 2;
+        i ? ctxFx.lineTo(px, py) : ctxFx.moveTo(px, py);
+      }
+      ctxFx.closePath();
+      ctxFx.fill();
+    } else if (p.kind === 'fire') {
+      const g = ctxFx.createRadialGradient(p.x, p.y, 0, p.x, p.y, s);
+      const h = 20 + Math.random() * 30;
+      g.addColorStop(0, `hsla(${h + 20},100%,72%,.95)`);
+      g.addColorStop(.5, `hsla(${h},100%,55%,.7)`);
+      g.addColorStop(1, `hsla(${h - 10},100%,45%,0)`);
+      ctxFx.fillStyle = g;
+      ctxFx.beginPath();
+      ctxFx.arc(p.x, p.y, s, 0, Math.PI * 2);
+      ctxFx.fill();
+      p.alpha -= 0.004;
+    } else if (p.kind === 'rain') {
+      ctxFx.strokeStyle = `rgba(190,215,240,${.30 * opMul})`;
+      ctxFx.lineWidth = 1.1;
+      ctxFx.beginPath();
+      ctxFx.moveTo(p.x, p.y);
+      ctxFx.lineTo(p.x - p.len * .28, p.y + p.len);
+      ctxFx.stroke();
+    }
+    ctxFx.restore();
+  }
+  ctxFx.restore();
+}
+
+function fxLoop(ts) {
+  if (!FX.running) return;
+  const dt = Math.min(0.05, (ts - (FX.last || ts)) / 1000);
+  FX.last = ts;
+  FX.t += dt;
+  fxStep(dt);
+  FX.raf = requestAnimationFrame(fxLoop);
+}
+
+function fxStart() {
+  const type = fxActiveType();
+  if (!type) { fxStop(); return; }
+  fxResize();
+  fxSpawn(type);
+  if (!FX.running) {
+    FX.running = true;
+    FX.last = 0;
+    FX.raf = requestAnimationFrame(fxLoop);
+  }
+}
+
+function fxStop() {
+  FX.running = false;
+  cancelAnimationFrame(FX.raf);
+  FX.parts = [];
+  const r = el.frame.getBoundingClientRect();
+  ctxFx.clearRect(0, 0, r.width || 0, r.height || 0);
+}
+
+/* ============================ 8. GUIDES ================================= */
+const GUIDES = {
+  thirds:   { ar: 'الثُلث',        draw: drawThirds },
+  center:   { ar: 'تقاطع مركزي',   draw: drawCenter },
+  diagonal: { ar: 'أقطار',         draw: drawDiagonals },
+  golden:   { ar: 'النسبة الذهبية', draw: drawGolden },
+  safe:     { ar: 'المنطقة الآمنة', draw: drawSafe },
+  cinema:   { ar: 'إطار سينمائي',  draw: drawCinemaGuide }
+};
+
+function svgLine(x1, y1, x2, y2, o = {}) {
+  const l = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+  l.setAttribute('x1', x1); l.setAttribute('y1', y1);
+  l.setAttribute('x2', x2); l.setAttribute('y2', y2);
+  l.setAttribute('stroke', o.color || 'rgba(255,255,255,.42)');
+  l.setAttribute('stroke-width', o.w || 0.22);
+  l.setAttribute('vector-effect', 'non-scaling-stroke');
+  if (o.dash) l.setAttribute('stroke-dasharray', o.dash);
+  return l;
+}
+function drawThirds(g) {
+  [33.333, 66.666].forEach(v => {
+    g.appendChild(svgLine(v, 0, v, 100));
+    g.appendChild(svgLine(0, v, 100, v));
+  });
+}
+function drawCenter(g) {
+  g.appendChild(svgLine(50, 44, 50, 56, { color: 'rgba(230,196,122,.85)', w: .3 }));
+  g.appendChild(svgLine(44, 50, 56, 50, { color: 'rgba(230,196,122,.85)', w: .3 }));
+}
+function drawDiagonals(g) {
+  g.appendChild(svgLine(0, 0, 100, 100, { dash: '3 3' }));
+  g.appendChild(svgLine(100, 0, 0, 100, { dash: '3 3' }));
+}
+function drawGolden(g) {
+  [38.2, 61.8].forEach(v => {
+    g.appendChild(svgLine(v, 0, v, 100, { color: 'rgba(230,196,122,.55)' }));
+    g.appendChild(svgLine(0, v, 100, v, { color: 'rgba(230,196,122,.55)' }));
+  });
+}
+function drawSafe(g) {
+  const r = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+  r.setAttribute('x', 8); r.setAttribute('y', 8);
+  r.setAttribute('width', 84); r.setAttribute('height', 84);
+  r.setAttribute('fill', 'none');
+  r.setAttribute('stroke', 'rgba(255,255,255,.35)');
+  r.setAttribute('stroke-width', 0.22);
+  r.setAttribute('stroke-dasharray', '2 2');
+  r.setAttribute('vector-effect', 'non-scaling-stroke');
+  g.appendChild(r);
+}
+function drawCinemaGuide(g) {
+  const r = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+  r.setAttribute('x', 6); r.setAttribute('y', 6);
+  r.setAttribute('width', 88); r.setAttribute('height', 88);
+  r.setAttribute('fill', 'none');
+  r.setAttribute('stroke', 'rgba(230,196,122,.5)');
+  r.setAttribute('stroke-width', 0.25);
+  r.setAttribute('vector-effect', 'non-scaling-stroke');
+  g.appendChild(r);
+  g.appendChild(svgLine(50, 0, 50, 100, { color: 'rgba(255,255,255,.18)' }));
+}
+
+function renderGuides() {
+  el.guides.innerHTML = '';
+  State.grid.forEach(key => {
+    const d = GUIDES[key];
+    if (d) d.draw(el.guides);
+  });
+}
+
+/* ============================ 9. HUD =================================== */
+function updateHUD(extra) {
+  const pills = [];
+  if (State.mode === 'cinema') pills.push(`${State.cinema.ratio} · ${State.fps}fps`);
+  if (State.mode === 'weather' && State.weather.preset !== 'none') {
+    pills.push(WEATHER_PRESETS[State.weather.preset]?.ar || '');
+  }
+  if (State.filter !== 'natural') pills.push(FILTERS[State.filter].ar);
+  if (State.focusLocked) pills.push('🔒 تركيز');
+  if (State.exposureLocked) pills.push('🔒 تعريض');
+  if (extra) pills.push(extra);
+  el.hud.innerHTML = pills.filter(Boolean)
+    .map((t, i) => `<span class="pill${i === 0 ? ' gold' : ''}">${t}</span>`).join('');
+}
+
+/* ============================ 10. CAMERA ENGINE ========================= */
+async function listCameras() {
+  try {
+    const devs = await navigator.mediaDevices.enumerateDevices();
+    State.devices = devs.filter(d => d.kind === 'videoinput');
+    return State.devices;
+  } catch (e) { return []; }
+}
+
+function cameraErrorMessage(err) {
+  const n = err && err.name ? err.name : '';
+  switch (n) {
+    case 'NotAllowedError':
+    case 'SecurityError':
+      return {
+        t: 'تم رفض إذن الكاميرا',
+        m: 'لم يتم منح إذن الوصول إلى الكاميرا. افتح إعدادات المتصفح وامنح الإذن لهذا الموقع ثم أعد المحاولة.'
+      };
+    case 'NotFoundError':
+    case 'OverconstrainedError':
+      return {
+        t: 'لا توجد كاميرا متاحة',
+        m: 'لم يتم العثور على كاميرا متوافقة على هذا الجهاز، أو أن الإعدادات المطلوبة غير مدعومة.'
+      };
+    case 'NotReadableError':
+      return {
+        t: 'الكاميرا مستخدمة حاليًا',
+        m: 'يبدو أن تطبيقًا آخر يستخدم الكاميرا. أغلق التطبيقات الأخرى ثم أعد المحاولة.'
+      };
+    case 'AbortError':
+      return { t: 'تم إيقاف تشغيل الكاميرا', m: 'تعذّر بدء الكاميرا. أعد المحاولة.' };
+    default:
+      return {
+        t: 'تعذّر تشغيل الكاميرا',
+        m: 'حدث خطأ غير متوقع أثناء تشغيل الكاميرا. تأكد من استخدام متصفح حديث (Chrome / Edge / Safari) ومن اتصال آمن HTTPS أو localhost.'
+      };
+  }
+}
+
+function showPermError(title, msg) {
+  el.permTitle.textContent = title;
+  el.permMsg.textContent = msg;
+  el.permError.classList.add('on');
+}
+
+async function startCamera(silent = false) {
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+    showPermError(
+      'المتصفح غير مدعوم',
+      'هذا المتصفح لا يدعم واجهة الكاميرا (getUserMedia). جرّب Chrome أو Edge أو Safari الحديث. ملاحظة: الصفحة يجب أن تعمل عبر HTTPS أو localhost.'
+    );
+    return false;
+  }
+
+  stopCamera();
+
+  const constraints = {
+    audio: false,
+    video: {
+      facingMode: State.facing === 'user' ? 'user' : { ideal: 'environment' },
+      width:  { ideal: 1920 },
+      height: { ideal: 1080 },
+      frameRate: { ideal: State.fps }
+    }
+  };
+  if (State.deviceId) {
+    constraints.video.deviceId = { exact: State.deviceId };
+    delete constraints.video.facingMode;
+  }
+
+  const resMap = { '720p': [1280, 720], '1080p': [1920, 1080], '4k': [3840, 2160] };
+  if (State.settings.resolution !== 'auto' && resMap[State.settings.resolution]) {
+    const [w, h] = resMap[State.settings.resolution];
+    constraints.video.width = { ideal: w };
+    constraints.video.height = { ideal: h };
+  }
+
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia(constraints);
+    State.stream = stream;
+    State.videoTrack = stream.getVideoTracks()[0] || null;
+    State.audioTrack = null;
+    el.video.srcObject = stream;
+    el.video.muted = true;
+    await el.video.play().catch(() => {});
+    el.startOverlay.classList.add('hidden');
+    el.permError.classList.remove('on');
+    State.permissionGranted = true;
+
+    // محاولة طلب إذن المايكروفون أيضًا (لتسجيل الفيديو بصوت) — تلقائيًا
+    tryAutoMicPermission();
+
+    await afterCameraStart();
+    return true;
+  } catch (err) {
+    State.permissionGranted = false;
+    if (!silent) {
+      const e = cameraErrorMessage(err);
+      showPermError(e.t, e.m);
+    }
+    return false;
+  }
+}
+
+/* طلب إذن المايكروفون تلقائيًا في الخلفية (لا يكسر التطبيق إذا رُفض) */
+async function tryAutoMicPermission() {
+  if (!State.settings.audio) return;
+  try {
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) return;
+    const s = await navigator.mediaDevices.getUserMedia({ audio: true });
+    s.getTracks().forEach(t => t.stop());
+  } catch (_) {
+    /* رُفض الإذن أو غير مدعوم — يتم التجاهل بهدوء */
+  }
+}
+
+async function afterCameraStart() {
+  await listCameras();
+  detectCapabilities();
+  await applyTrackConstraints();
+  applyMirror();
+  applyPreviewFilter();
+  layoutFrame();
+  fxStart();
+  updateZoomChips();
+  updateHUD();
+  refreshCapsInfo();
+}
+
+function detectCapabilities() {
+  const t = State.videoTrack;
+  State.capabilities = {};
+  State.torchSupported = false;
+  State.hwZoom = false;
+  State.hwExposure = false;
+  if (!t || !t.getCapabilities) return;
+  try {
+    const caps = t.getCapabilities();
+    State.capabilities = caps;
+    State.torchSupported = !!caps.torch;
+    State.hwZoom = !!caps.zoom;
+    State.hwExposure = typeof caps.exposureCompensation !== 'undefined';
+  } catch (_) {}
+}
+
+async function applyTrackConstraints() {
+  const t = State.videoTrack;
+  if (!t) return;
+  const adv = [];
+  if (State.capabilities.frameRate) adv.push({ frameRate: State.fps });
+  if (State.capabilities.focusMode && State.capabilities.focusMode.includes('continuous')) {
+    adv.push({ focusMode: 'continuous' });
+  }
+  if (State.mode === 'cinema' && State.cinema.stabilization && State.capabilities.videoStabilizationMode) {
+    adv.push({ videoStabilizationMode: 'on' });
+  }
+  if (adv.length) {
+    try { await t.applyConstraints({ advanced: adv }); } catch (_) {}
+  }
+}
+
+function stopCamera() {
+  if (State.stream) {
+    State.stream.getTracks().forEach(t => { try { t.stop(); } catch (_) {} });
+  }
+  State.stream = null;
+  State.videoTrack = null;
+  State.audioTrack = null;
+  el.video.srcObject = null;
+  fxStop();
+}
+
+function applyMirror() {
+  const shouldMirror = State.facing === 'user' && State.settings.mirror;
+  el.video.classList.toggle('mirror', shouldMirror);
+}
+
+async function switchCamera() {
+  if (!State.stream) return;
+  haptic(15);
+  State.facing = State.facing === 'environment' ? 'user' : 'environment';
+  State.deviceId = null;
+  State.zoom = 1;
+  await startCamera(true);
+  toast(State.facing === 'user' ? 'الكاميرا الأمامية' : 'الكاميرا الخلفية', 1400);
+}
+
+function refreshCapsInfo() {
+  const c = [];
+  c.push(State.torchSupported ? '✅ فلاش (Torch) مدعوم' : '⚠️ الفلاش غير متاح في هذا المتصفح');
+  c.push(State.hwZoom ? '✅ تكبير عتادي' : 'ℹ️ تكبير رقمي');
+  c.push(State.hwExposure ? '✅ تعريض عتادي' : 'ℹ️ تعريض برمجي');
+  const rec = bestMimeType();
+  c.push(rec ? '✅ تسجيل فيديو: ' + rec.split(';')[0] : '⚠️ تسجيل الفيديو غير مدعوم');
+  c.push('🎥 الكاميرات المكتشفة: ' + (State.devices.length || '—'));
+  el.capsInfo.innerHTML = c.join('<br>');
+}
+
+/* ============================ 11. LAYOUT / FRAME ======================== */
+function layoutFrame() {
+  const stageRect = el.stage.getBoundingClientRect();
+  const ar = AR[State.aspect].v;
+  let w = stageRect.width;
+  let h = w / ar;
+  const maxH = stageRect.height;
+  if (h > maxH) { h = maxH; w = h * ar; }
+  el.frame.style.width = Math.round(w) + 'px';
+  el.frame.style.height = Math.round(h) + 'px';
+  requestAnimationFrame(() => { fxResize(); });
+}
+
+/* ============================ 12. ZOOM ================================== */
+const ZOOM_LEVELS = [0.5, 1, 2, 3, 5];
+
+function updateZoomChips() {
+  el.zoomChips.innerHTML = '';
+  ZOOM_LEVELS.forEach(z => {
+    const b = document.createElement('button');
+    b.textContent = z + 'x';
+    b.setAttribute('aria-label', `تكبير ${z}x`);
+    if (Math.abs(State.zoom - z) < 0.01) b.classList.add('active');
+    b.addEventListener('click', () => { setZoom(z); haptic(); });
+    el.zoomChips.appendChild(b);
+  });
+}
+
+function setZoom(z) {
+  State.zoom = clamp(z, 0.5, 8);
+  const t = State.videoTrack;
+  if (t && State.hwZoom && State.capabilities.zoom) {
+    const zc = State.capabilities.zoom;
+    const val = clamp(State.zoom, zc.min || 1, zc.max || 1);
+    t.applyConstraints({ advanced: [{ zoom: val }] }).catch(() => {});
+    el.video.style.transform = '';
+  } else {
+    el.video.style.transform = `scale(${State.zoom})`;
+  }
+  updateZoomChips();
+}
+
+/* ============================ 13. FOCUS ================================= */
+async function focusAt(clientX, clientY) {
+  const r = el.frame.getBoundingClientRect();
+  const x = clamp(clientX - r.left, 0, r.width);
+  const y = clamp(clientY - r.top, 0, r.height);
+
+  el.focusRing.style.left = x + 'px';
+  el.focusRing.style.top = y + 'px';
+  el.focusRing.classList.remove('active');
+  void el.focusRing.offsetWidth;
+  el.focusRing.classList.add('active');
+  el.focusRing.classList.toggle('locked', State.focusLocked);
+
+  const t = State.videoTrack;
+  if (t && t.getCapabilities) {
+    let caps = {};
+    try { caps = t.getCapabilities(); } catch (_) {}
+    if (caps.focusMode && caps.pointsOfInterest) {
+      try {
+        await t.applyConstraints({
+          advanced: [{
+            focusMode: 'single-shot',
+            pointsOfInterest: [{ x: x / r.width, y: y / r.height }]
+          }]
+        });
+      } catch (_) {}
+    }
+  }
+}
+
+/* ============================ 14. EXPOSURE ============================== */
+async function setExposure(v) {
+  State.exposure = clamp(parseFloat(v), -2, 2);
+  el.evVal.textContent = 'EV ' + (State.exposure > 0 ? '+' : '') + State.exposure.toFixed(1);
+  const t = State.videoTrack;
+  if (t && State.hwExposure && State.capabilities.exposureCompensation) {
+    const ec = State.capabilities.exposureCompensation;
+    const val = clamp(State.exposure, ec.min ?? -2, ec.max ?? 2);
+    try { await t.applyConstraints({ advanced: [{ exposureCompensation: val }] }); } catch (_) {}
+  }
+  applyPreviewFilter();
+}
+
+/* ============================ 15. FLASH / TORCH ========================= */
+async function setTorch(mode) {
+  State.torch = mode;
+  const t = State.videoTrack;
+  if (!t) { toast('شغّل الكاميرا أولًا'); return; }
+
+  if (mode === 'off') {
+    if (State.torchSupported) {
+      try { await t.applyConstraints({ advanced: [{ torch: false }] }); } catch (_) {}
+    }
+    toast('الفلاش: مغلق', 1200);
+    return;
+  }
+
+  if (mode === 'auto') { toast('الفلاش: تلقائي (يُستخدم عند الحاجة)', 1600); return; }
+
+  if (State.torchSupported) {
+    try {
+      await t.applyConstraints({ advanced: [{ torch: true }] });
+      toast('الفلاش: مفتوح 💡', 1400);
+      return;
+    } catch (_) {}
+  }
+
+  toast('الفلاش العتادي غير متاح — سيتم استخدام وميض الشاشة', 2400);
+}
+
+async function screenFlash() {
+  if (State.torch !== 'on' && !(State.torch === 'auto' && isDarkScene())) return;
+  if (State.torchSupported && State.torch === 'on') return;
+  const flash = document.createElement('div');
+  flash.style.cssText = `position:fixed;inset:0;background:#fff;z-index:150;opacity:0;
+    transition:opacity .06s linear;pointer-events:none;`;
+  document.body.appendChild(flash);
+  await new Promise(r => requestAnimationFrame(() => { flash.style.opacity = '.92'; r(); }));
+  await sleep(90);
+  flash.style.opacity = '0';
+  setTimeout(() => flash.remove(), 320);
+}
+
+function isDarkScene() {
+  try {
+    const c = document.createElement('canvas');
+    c.width = 32; c.height = 32;
+    const cx = c.getContext('2d');
+    cx.drawImage(el.video, 0, 0, 32, 32);
+    const d = cx.getImageData(0, 0, 32, 32).data;
+    let sum = 0;
+    for (let i = 0; i < d.length; i += 4) sum += (d[i] + d[i + 1] + d[i + 2]) / 3;
+    return (sum / (d.length / 4)) < 70;
+  } catch (_) { return false; }
+}
+
+/* ============================ 16. TIMER ================================= */
+function runCountdown(sec) {
+  return new Promise(resolve => {
+    let n = sec;
+    const show = () => {
+      el.countdown.textContent = n;
+      el.countdown.classList.remove('tick');
+      void el.countdown.offsetWidth;
+      el.countdown.classList.add('tick');
+      haptic(20);
+      if (n <= 0) { setTimeout(() => { el.countdown.textContent = ''; resolve(); }, 300); return; }
+      n--;
+      setTimeout(show, 1000);
+    };
+    show();
+  });
+}
+
+/* ============================ 17. PHOTO CAPTURE ========================= */
+async function capturePhoto() {
+  if (!State.stream || !State.videoTrack) { toast('الكاميرا غير جاهزة'); return; }
+  if (State.recording) { toast('لا يمكن التقاط صورة أثناء التسجيل'); return; }
+
+  el.shutterBtn.classList.add('busy');
+  await screenFlash();
+
+  const video = el.video;
+  const vw = video.videoWidth || 1280;
+  const vh = video.videoHeight || 720;
+  const ar = AR[State.aspect].v;
+
+  let sw = vw, sh = Math.round(vw / ar);
+  if (sh > vh) { sh = vh; sw = Math.round(vh * ar); }
+
+  if (!State.hwZoom && State.zoom > 1) {
+    sw = Math.round(sw / State.zoom);
+    sh = Math.round(sh / State.zoom);
+  }
+
+  const sx = Math.round((vw - sw) / 2);
+  const sy = Math.round((vh - sh) / 2);
+
+  const cvs = document.createElement('canvas');
+  cvs.width = sw;
+  cvs.height = sh;
+  const ctx = cvs.getContext('2d');
+  ctx.imageSmoothingQuality = 'high';
+
+  if ('filter' in ctx) ctx.filter = currentFilterString();
+
+  const mirror = (State.facing === 'user' && State.settings.mirror);
+  ctx.save();
+  if (mirror) {
+    ctx.translate(sw, 0);
+    ctx.scale(-1, 1);
+  }
+  try {
+    ctx.drawImage(video, sx, sy, sw, sh, 0, 0, sw, sh);
+  } catch (e) {
+    ctx.restore();
+    el.shutterBtn.classList.remove('busy');
+    toast('تعذّر التقاط الصورة');
+    return;
+  }
+  ctx.restore();
+  if ('filter' in ctx) ctx.filter = 'none';
+
+  // طبقة المؤثرات (خيالي / مطر) إن كانت مفعّلة
+  if (fxActiveType() && el.fx.width > 0) {
+    try { ctx.drawImage(el.fx, 0, 0, sw, sh); } catch (_) {}
+  }
+
+  // الملصقات / الأفاتار
+  compositeStickers(ctx, sw, sh);
+
+  // ✅ العلامة المائية المميزة — تُرسم قبل الحفظ
+  drawWatermark(ctx, sw, sh);
+
+  const quality = State.settings.saveQuality === 'low' ? 0.72
+                : State.settings.saveQuality === 'medium' ? 0.85 : 0.94;
+
+  cvs.toBlob(async blob => {
+    el.shutterBtn.classList.remove('busy');
+    if (!blob) { toast('فشل إنشاء الصورة'); return; }
+    haptic(25);
+    try {
+      const id = await MediaDB.add({
+        type: 'photo', blob, thumb: null, created: Date.now(), fav: false,
+        w: sw, h: sh, watermark: State.settings.watermark
+      });
+      await updateLastThumb(blob);
+      openPreview({ id, type: 'photo', blob }, true);
+    } catch (e) {
+      toast('تعذّر الحفظ محليًا — سيتم عرض الصورة فقط');
+      openPreview({ id: null, type: 'photo', blob }, false);
+    }
+  }, 'image/jpeg', quality);
+}
+
+function compositeStickers(ctx, sw, sh) {
+  const fr = el.frame.getBoundingClientRect();
+  if (!fr.width || !fr.height) return;
+  $$('#stickersLayer .sticker').forEach(node => {
+    const r = node.getBoundingClientRect();
+    const cx = (r.left + r.width / 2 - fr.left) / fr.width;
+    const cy = (r.top + r.height / 2 - fr.top) / fr.height;
+    const size = (r.width / fr.width) * sw;
+    const rot = parseFloat(node.dataset.rot || '0') * Math.PI / 180;
+    const op = parseFloat(node.dataset.opacity || '1');
+
+    ctx.save();
+    ctx.globalAlpha = op;
+    ctx.translate(cx * sw, cy * sh);
+    ctx.rotate(rot);
+    if (node.dataset.type === 'img') {
+      const img = node.querySelector('img');
+      if (img && img.complete) {
+        const h = (r.height / fr.height) * sh;
+        ctx.drawImage(img, -size / 2, -h / 2, size, h);
+      }
+    } else {
+      ctx.font = `${size}px "Noto Color Emoji","Segoe UI Emoji",serif`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillStyle = node.dataset.color || '#fff';
+      ctx.shadowColor = 'rgba(0,0,0,.45)';
+      ctx.shadowBlur = size * 0.12;
+      ctx.fillText(node.dataset.char || '★', 0, 0);
+    }
+    ctx.restore();
+  });
+}
+
+async function updateLastThumb(blob) {
+  const url = URL.createObjectURL(blob);
+  el.lastThumb.src = url;
+  el.lastThumb.classList.remove('empty');
+  el.galIcon.style.display = 'none';
+  if (el.lastThumb._oldUrl) URL.revokeObjectURL(el.lastThumb._oldUrl);
+  el.lastThumb._oldUrl = url;
+}
+
+/* ============================ 18. VIDEO RECORDING ======================= */
+function bestMimeType() {
+  if (!window.MediaRecorder) return '';
+  const candidates = [
+    'video/webm;codecs=vp9,opus',
+    'video/webm;codecs=vp8,opus',
+    'video/webm;codecs=h264,opus',
+    'video/webm',
+    'video/mp4;codecs=h264,aac',
+    'video/mp4;codecs=avc1,mp4a',
+    'video/mp4',
+    'video/3gpp'
+  ];
+  for (const c of candidates) {
+    try { if (MediaRecorder.isTypeSupported(c)) return c; } catch (_) {}
+  }
+  return '';
+}
+
+let audioCtx = null, analyser = null, audioRaf = 0;
+
+function setupAudioMeter(stream) {
+  if (!stream.getAudioTracks().length) return;
+  try {
+    audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
+    const src = audioCtx.createMediaStreamSource(stream);
+    analyser = audioCtx.createAnalyser();
+    analyser.fftSize = 256;
+    src.connect(analyser);
+
+    el.audioMeter.innerHTML = '';
+    const bars = 12;
+    for (let i = 0; i < bars; i++) el.audioMeter.appendChild(document.createElement('span'));
+    const nodes = $$('#audioMeter span');
+    const data = new Uint8Array(analyser.frequencyBinCount);
+    el.audioMeter.classList.add('on');
+
+    const loop = () => {
+      if (!State.recording) { audioRaf = 0; return; }
+      analyser.getByteFrequencyData(data);
+      const step = Math.floor(data.length / bars);
+      for (let i = 0; i < bars; i++) {
+        let sum = 0;
+        for (let j = 0; j < step; j++) sum += data[i * step + j] || 0;
+        const v = (sum / step) / 255;
+        nodes[i].style.height = (3 + v * 30) + 'px';
+      }
+      audioRaf = requestAnimationFrame(loop);
+    };
+    audioRaf = requestAnimationFrame(loop);
+  } catch (_) {}
+}
+
+function teardownAudioMeter() {
+  cancelAnimationFrame(audioRaf);
+  audioRaf = 0;
+  el.audioMeter.classList.remove('on');
+  el.audioMeter.innerHTML = '';
+  analyser = null;
+}
+
+async function startRecording() {
+  if (State.recording) return;
+  if (!window.MediaRecorder) { toast('تسجيل الفيديو غير مدعوم في هذا المتصفح'); return; }
+  if (!State.stream) { toast('شغّل الكاميرا أولًا'); return; }
+
+  const mime = bestMimeType();
+  if (!mime) { toast('لا توجد صيغة فيديو مدعومة على هذا الجهاز'); return; }
+
+  let recStream = new MediaStream();
+  const vTrack = State.videoTrack;
+  if (vTrack) recStream.addTrack(vTrack);
+
+  if (State.settings.audio) {
+    try {
+      const aStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      State.audioTrack = aStream.getAudioTracks()[0] || null;
+      if (State.audioTrack) recStream.addTrack(State.audioTrack);
+    } catch (e) {
+      toast('تم رفض إذن المايكروفون — سيتم التسجيل بدون صوت', 2800);
+    }
+  }
+  if (!recStream.getVideoTracks().length) { toast('لا يوجد مسار فيديو للتسجيل'); return; }
+
+  const bitrate = State.settings.videoQuality === 'low' ? 2500000
+                : State.settings.videoQuality === 'medium' ? 5000000
+                : State.videoQuality;
+
+  let rec;
+  try {
+    rec = new MediaRecorder(recStream, { mimeType: mime, videoBitsPerSecond: bitrate });
+  } catch (e) {
+    try { rec = new MediaRecorder(recStream); }
+    catch (e2) { toast('تعذّر بدء التسجيل على هذا الجهاز'); return; }
+  }
+
+  State.recorder = rec;
+  State.chunks = [];
+
+  rec.ondataavailable = ev => { if (ev.data && ev.data.size) State.chunks.push(ev.data); };
+  rec.onerror = () => { toast('حدث خطأ أثناء التسجيل'); stopRecording(); };
+  rec.onstop = async () => {
+    const type = rec.mimeType || 'video/webm';
+    const blob = new Blob(State.chunks, { type });
+    State.chunks = [];
+    teardownAudioMeter();
+    if (State.audioTrack) { try { State.audioTrack.stop(); } catch (_) {} State.audioTrack = null; }
+    if (blob.size < 800) { toast('التسجيل فارغ أو قصير جدًا'); resetRecUI(); return; }
+    try {
+      const id = await MediaDB.add({
+        type: 'video', blob, thumb: null, created: Date.now(), fav: false,
+        duration: (Date.now() - State.recStart) / 1000
+      });
+      openPreview({ id, type: 'video', blob }, true);
+    } catch (e) {
+      toast('تعذّر حفظ الفيديو محليًا');
+      openPreview({ id: null, type: 'video', blob }, false);
+    }
+    resetRecUI();
+  };
+
+  try { rec.start(1000); } catch (e) { toast('تعذّر بدء التسجيل'); return; }
+
+  State.recording = true;
+  State.paused = false;
+  State.recStart = Date.now();
+
+  el.shutterBtn.classList.add('rec');
+  el.recBadge.classList.add('on');
+  el.pauseBtn.classList.remove('hidden');
+  el.pauseBtn.textContent = '⏸';
+  setupAudioMeter(recStream);
+
+  State.recTimer = setInterval(() => {
+    if (!State.paused) el.recTime.textContent = fmtTime((Date.now() - State.recStart) / 1000);
+  }, 250);
+
+  haptic(30);
+  toast('بدأ التسجيل ⏺', 1400);
+  updateHUD('REC');
+}
+
+function pauseRecording() {
+  const r = State.recorder;
+  if (!r) return;
+  if (State.paused) {
+    try { r.resume(); } catch (_) {}
+    State.paused = false;
+    el.pauseBtn.textContent = '⏸';
+    toast('استئناف التسجيل', 1200);
+  } else {
+    try { r.pause(); } catch (_) {}
+    State.paused = true;
+    el.pauseBtn.textContent = '▶';
+    toast('إيقاف مؤقت', 1200);
+  }
+}
+
+function stopRecording() {
+  const r = State.recorder;
+  if (!r || !State.recording) return;
+  State.recording = false;
+  State.paused = false;
+  clearInterval(State.recTimer);
+  try { if (r.state !== 'inactive') r.stop(); } catch (_) {}
+}
+
+function resetRecUI() {
+  State.recording = false;
+  State.paused = false;
+  clearInterval(State.recTimer);
+  el.shutterBtn.classList.remove('rec');
+  el.recBadge.classList.remove('on');
+  el.pauseBtn.classList.add('hidden');
+  el.recTime.textContent = '00:00';
+  teardownAudioMeter();
+  updateHUD();
+}
+
+/* ============================ 19. SHUTTER LOGIC ========================= */
+let pressTimer = null, longPress = false;
+
+function onShutterDown() {
+  if (!State.stream) { toast('شغّل الكاميرا أولًا'); return; }
+  if (State.mode === 'cinema') return;
+  if (State.recording) return;
+  longPress = false;
+  pressTimer = setTimeout(() => {
+    longPress = true;
+    startRecording();
+  }, 560);
+}
+
+async function onShutterUp() {
+  clearTimeout(pressTimer);
+
+  if (State.mode === 'cinema') {
+    haptic(20);
+    if (State.recording) stopRecording();
+    else {
+      if (State.timer > 0) { await runCountdown(State.timer); }
+      startRecording();
+    }
+    return;
+  }
+
+  if (longPress) { longPress = false; stopRecording(); return; }
+  if (State.recording) return;
+
+  if (State.timer > 0) {
+    await runCountdown(State.timer);
+  }
+  capturePhoto();
+}
+
+/* ============================ 20. STICKERS / AVATAR ===================== */
+function addSticker(opts) {
+  const { type = 'char', char = '★', src = null, size = 84, x = 0.5, y = 0.5, opacity = 1, rot = 0 } = opts;
+
+  const node = document.createElement('div');
+  node.className = 'sticker';
+  node.dataset.type = type;
+  node.dataset.opacity = opacity;
+  node.dataset.rot = rot;
+  if (type === 'char') node.dataset.char = char;
+  node.style.width = size + 'px';
+  node.style.height = size + 'px';
+
+  if (type === 'img') {
+    const img = document.createElement('img');
+    img.src = src;
+    img.alt = 'ملصق';
+    node.appendChild(img);
+  } else {
+    node.style.fontSize = size + 'px';
+    node.style.lineHeight = size + 'px';
+    node.style.textAlign = 'center';
+    node.textContent = char;
+  }
+
+  const fr = el.frame.getBoundingClientRect();
+  const px = x * fr.width - size / 2;
+  const py = y * fr.height - size / 2;
+  node.style.transform = `translate(${px}px, ${py}px) rotate(${rot}deg)`;
+
+  el.stickers.appendChild(node);
+  makeDraggable(node);
+  selectSticker(node);
+  return node;
+}
+
+let selectedSticker = null;
+function selectSticker(node) {
+  $$('#stickersLayer .sticker').forEach(n => n.classList.remove('sel'));
+  selectedSticker = node;
+  if (node) node.classList.add('sel');
+}
+
+function makeDraggable(node) {
+  let sx = 0, sy = 0, ox = 0, oy = 0, dragging = false;
+
+  node.addEventListener('pointerdown', e => {
+    e.preventDefault();
+    e.stopPropagation();
+    selectSticker(node);
+    dragging = true;
+    node.setPointerCapture(e.pointerId);
+    const m = /translate\(([-\d.]+)px,\s*([-\d.]+)px\)/.exec(node.style.transform) || [0, 0, 0];
+    ox = parseFloat(m[1]) || 0;
+    oy = parseFloat(m[2]) || 0;
+    sx = e.clientX; sy = e.clientY;
+    node.style.cursor = 'grabbing';
+  });
+
+  node.addEventListener('pointermove', e => {
+    if (!dragging) return;
+    const fr = el.frame.getBoundingClientRect();
+    let nx = ox + (e.clientX - sx);
+    let ny = oy + (e.clientY - sy);
+    nx = clamp(nx, -node.offsetWidth * 0.6, fr.width - node.offsetWidth * 0.4);
+    ny = clamp(ny, -node.offsetHeight * 0.6, fr.height - node.offsetHeight * 0.4);
+    const rot = node.dataset.rot || 0;
+    node.style.transform = `translate(${nx}px, ${ny}px) rotate(${rot}deg)`;
+  });
+
+  const end = e => {
+    dragging = false;
+    node.style.cursor = 'grab';
+    try { node.releasePointerCapture(e.pointerId); } catch (_) {}
+  };
+  node.addEventListener('pointerup', end);
+  node.addEventListener('pointercancel', end);
+}
+
+function updateSelectedSticker(props) {
+  if (!selectedSticker) { toast('اختر ملصقًا أولًا'); return; }
+  const n = selectedSticker;
+  if (props.opacity !== undefined) {
+    n.dataset.opacity = props.opacity;
+    n.style.opacity = props.opacity;
+  }
+  if (props.size !== undefined) {
+    n.style.width = props.size + 'px';
+    n.style.height = props.size + 'px';
+    if (n.dataset.type === 'char') {
+      n.style.fontSize = props.size + 'px';
+      n.style.lineHeight = props.size + 'px';
+    }
+  }
+  if (props.rot !== undefined) {
+    n.dataset.rot = props.rot;
+    const m = /translate\(([-\d.]+)px,\s*([-\d.]+)px\)/.exec(n.style.transform) || [0, 0, 0];
+    n.style.transform = `translate(${m[1] || 0}px, ${m[2] || 0}px) rotate(${props.rot}deg)`;
+  }
+}
+
+function clearStickers() {
+  el.stickers.innerHTML = '';
+  selectedSticker = null;
+}
+
+/* ============================ 21. MEDIA PREVIEW ========================= */
+let currentPreview = null;
+
+function openPreview(rec, saved) {
+  currentPreview = { ...rec, saved: !!saved };
+  el.pvStage.innerHTML = '';
+  const url = URL.createObjectURL(rec.blob);
+
+  if (rec.type === 'photo') {
+    const img = document.createElement('img');
+    img.src = url;
+    img.alt = 'الصورة الملتقطة';
+    el.pvStage.appendChild(img);
+    el.pvTitle.textContent = 'الصورة';
+  } else {
+    const v = document.createElement('video');
+    v.src = url;
+    v.controls = true;
+    v.playsInline = true;
+    v.autoplay = true;
+    v.loop = true;
+    el.pvStage.appendChild(v);
+    el.pvTitle.textContent = 'الفيديو';
+  }
+
+  el.previewOverlay.classList.add('on');
+  el.pvEdit.style.display = rec.type === 'photo' ? '' : 'none';
+  el.pvFav.textContent = rec.fav ? '★' : '☆';
+  el.previewOverlay._url = url;
+}
+
+function closePreview() {
+  el.previewOverlay.classList.remove('on');
+  if (el.previewOverlay._url) { URL.revokeObjectURL(el.previewOverlay._url); el.previewOverlay._url = null; }
+  el.pvStage.innerHTML = '';
+  currentPreview = null;
+}
+
+async function downloadBlob(blob, name) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = name;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 4000);
+}
+
+function extFor(type) {
+  if (type.includes('mp4')) return 'mp4';
+  if (type.includes('webm')) return 'webm';
+  return 'jpg';
+}
+
+async function shareBlob(blob, filename) {
+  const file = new File([blob], filename, { type: blob.type });
+  if (navigator.canShare && navigator.canShare({ files: [file] })) {
+    try {
+      await navigator.share({ files: [file], title: 'MAZO CAMERA' });
+      return true;
+    } catch (e) {}
+  }
+  toast('المشاركة غير مدعومة في هذا المتصفح — يمكنك التنزيل بدلًا منها', 2800);
+  return false;
+}
+
+/* ============================ 22. PHOTO EDITOR ========================== */
+const Editor = {
+  img: null,
+  adj: { bri: 0, con: 0, sat: 0, tem: 0, blur: 0, sharp: 0, vig: 0, grain: 0 },
+  filter: 'natural',
+  filterIntensity: 100,
+  rot: 0, flipH: false, flipV: false,
+  cropAR: null,
+  layers: []
+};
+
+function editorFilterCSS() {
+  const a = Editor.adj;
+  const p = Object.assign({}, FILTERS[Editor.filter]?.p || {});
+  const t = Editor.filterIntensity / 100;
+  const L = (x, y) => x + (y - x) * t;
+  const parts = [];
+  parts.push(`brightness(${L(1, p.brightness ?? 1) * (1 + a.bri / 130)})`);
+  parts.push(`contrast(${L(1, p.contrast ?? 1) * (1 + a.con / 130)})`);
+  parts.push(`saturate(${L(1, p.saturation ?? 1) * (1 + a.sat / 110)})`);
+  if (p.sepia)     parts.push(`sepia(${L(0, p.sepia)})`);
+  if (p.grayscale) parts.push(`grayscale(${L(0, p.grayscale)})`);
+  if (p.hue)       parts.push(`hue-rotate(${L(0, p.hue)}deg)`);
+  if (a.tem > 0)   parts.push(`sepia(${(a.tem / 100) * .35})`);
+  if (a.tem < 0)   parts.push(`hue-rotate(${(a.tem / 100) * 16}deg)`);
+  const blurTotal = (p.blur || 0) + (a.blur / 100) * 4;
+  if (blurTotal > 0.01) parts.push(`blur(${blurTotal.toFixed(2)}px)`);
+  return parts.join(' ');
+}
+
+function openEditorFromBlob(blob) {
+  const img = new Image();
+  const url = URL.createObjectURL(blob);
+  img.onload = () => {
+    Editor.img = img;
+    Editor.rot = 0; Editor.flipH = false; Editor.flipV = false;
+    Editor.cropAR = null;
+    Editor.layers = [];
+    el.edLayers.innerHTML = '';
+    Editor.url = url;
+    renderEditor();
+    el.editorOverlay.classList.add('on');
+    closePreview();
+  };
+  img.onerror = () => { toast('تعذّر فتح الصورة للتحرير'); URL.revokeObjectURL(url); };
+  img.src = url;
+}
+
+function renderEditor() {
+  const c = el.edCanvas;
+  const img = Editor.img;
+  if (!img) return;
+
+  let sw = img.naturalWidth, sh = img.naturalHeight;
+  if (Editor.cropAR) {
+    const ar = Editor.cropAR;
+    let w = sw, h = sw / ar;
+    if (h > sh) { h = sh; w = sh * ar; }
+    sw = Math.round(w); sh = Math.round(h);
+  }
+  const rotated = Editor.rot % 180 !== 0;
+  c.width = rotated ? sh : sw;
+  c.height = rotated ? sw : sh;
+
+  const ctx = c.getContext('2d');
+  ctx.clearRect(0, 0, c.width, c.height);
+  ctx.save();
+  ctx.translate(c.width / 2, c.height / 2);
+  ctx.rotate(Editor.rot * Math.PI / 180);
+  ctx.scale(Editor.flipH ? -1 : 1, Editor.flipV ? -1 : 1);
+
+  const sx = (img.naturalWidth - sw) / 2;
+  const sy = (img.naturalHeight - sh) / 2;
+  ctx.drawImage(img, sx, sy, sw, sh, -sw / 2, -sh / 2, sw, sh);
+  ctx.restore();
+
+  c.style.filter = editorFilterCSS();
+
+  const rect = c.getBoundingClientRect();
+  el.edLayers.style.width = rect.width + 'px';
+  el.edLayers.style.height = rect.height + 'px';
+  el.edLayers.style.left = (c.offsetLeft) + 'px';
+  el.edLayers.style.top = (c.offsetTop) + 'px';
+}
+
+function addEditorText(text) {
+  if (!text.trim()) { toast('اكتب نصًا أولًا'); return; }
+  const node = document.createElement('div');
+  node.className = 'ed-text';
+  node.textContent = text;
+  node.dataset.size = 28;
+  node.dataset.rot = 0;
+  node.dataset.opacity = 1;
+  node.dataset.bold = '0';
+  node.dataset.shadow = '1';
+  node.dataset.bg = '0';
+  node.style.fontSize = '28px';
+  node.style.color = '#ffffff';
+  node.style.left = '20%';
+  node.style.top = '30%';
+  node.style.textShadow = '0 2px 8px rgba(0,0,0,.8)';
+  el.edLayers.appendChild(node);
+  makeEdTextDraggable(node);
+  selectEdLayer(node);
+}
+
+let selectedEdLayer = null;
+function selectEdLayer(n) {
+  $$('.ed-text', el.edLayers).forEach(x => x.classList.remove('sel'));
+  selectedEdLayer = n;
+  if (n) n.classList.add('sel');
+}
+
+function makeEdTextDraggable(node) {
+  let sx = 0, sy = 0, ox = 0, oy = 0, on = false;
+  node.addEventListener('pointerdown', e => {
+    e.preventDefault(); e.stopPropagation();
+    selectEdLayer(node);
+    on = true;
+    node.setPointerCapture(e.pointerId);
+    ox = parseFloat(node.style.left) || 0;
+    oy = parseFloat(node.style.top) || 0;
+    sx = e.clientX; sy = e.clientY;
+  });
+  node.addEventListener('pointermove', e => {
+    if (!on) return;
+    const w = el.edLayers.clientWidth || 1;
+    const h = el.edLayers.clientHeight || 1;
+    node.style.left = clamp(ox + (e.clientX - sx) / w * 100, -10, 95) + '%';
+    node.style.top  = clamp(oy + (e.clientY - sy) / h * 100, -5, 95) + '%';
+  });
+  const end = e => { on = false; try { node.releasePointerCapture(e.pointerId); } catch (_) {} };
+  node.addEventListener('pointerup', end);
+  node.addEventListener('pointercancel', end);
+}
+
+function edTextCmd(cmd) {
+  const n = selectedEdLayer;
+  if (!n) { toast('اختر نصًا أولًا'); return; }
+  if (cmd === 'size+') n.dataset.size = Math.min(120, (+n.dataset.size || 28) + 4);
+  if (cmd === 'size-') n.dataset.size = Math.max(10, (+n.dataset.size || 28) - 4);
+  if (cmd === 'bold')  n.dataset.bold = n.dataset.bold === '1' ? '0' : '1';
+  if (cmd === 'shadow') n.dataset.shadow = n.dataset.shadow === '1' ? '0' : '1';
+  if (cmd === 'bg')    n.dataset.bg = n.dataset.bg === '1' ? '0' : '1';
+  if (cmd === 'rot+')  n.dataset.rot = (+n.dataset.rot || 0) + 10;
+  if (cmd === 'rot-')  n.dataset.rot = (+n.dataset.rot || 0) - 10;
+  if (cmd === 'del') { n.remove(); selectedEdLayer = null; return; }
+
+  n.style.fontSize = n.dataset.size + 'px';
+  n.style.fontWeight = n.dataset.bold === '1' ? '800' : '400';
+  n.style.textShadow = n.dataset.shadow === '1' ? '0 2px 8px rgba(0,0,0,.85)' : 'none';
+  n.style.background = n.dataset.bg === '1' ? 'rgba(0,0,0,.45)' : 'transparent';
+  n.style.transform = `rotate(${n.dataset.rot}deg)`;
+}
+
+async function saveEditor() {
+  const img = Editor.img;
+  if (!img) return;
+  const c = el.edCanvas;
+  const scale = Math.min(1, 2200 / Math.max(c.width, c.height));
+  const out = document.createElement('canvas');
+  out.width = Math.round(c.width * scale);
+  out.height = Math.round(c.height * scale);
+  const ctx = out.getContext('2d');
+
+  if ('filter' in ctx) ctx.filter = editorFilterCSS();
+  ctx.drawImage(c, 0, 0, out.width, out.height);
+  if ('filter' in ctx) ctx.filter = 'none';
+
+  if (Editor.adj.vig > 0) {
+    const g = ctx.createRadialGradient(
+      out.width / 2, out.height / 2, Math.min(out.width, out.height) * .28,
+      out.width / 2, out.height / 2, Math.max(out.width, out.height) * .72
+    );
+    g.addColorStop(0, 'rgba(0,0,0,0)');
+    g.addColorStop(1, `rgba(0,0,0,${(Editor.adj.vig / 100) * .85})`);
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, out.width, out.height);
+  }
+
+  if (Editor.adj.grain > 0) {
+    const amt = (Editor.adj.grain / 100) * 26;
+    const imgd = ctx.getImageData(0, 0, out.width, out.height);
+    const d = imgd.data;
+    for (let i = 0; i < d.length; i += 4) {
+      const n = (Math.random() - .5) * amt;
+      d[i] = clamp(d[i] + n, 0, 255);
+      d[i + 1] = clamp(d[i + 1] + n, 0, 255);
+      d[i + 2] = clamp(d[i + 2] + n, 0, 255);
+    }
+    ctx.putImageData(imgd, 0, 0);
+  }
+
+  const rect = c.getBoundingClientRect();
+  const kx = out.width / (rect.width || 1);
+  const ky = out.height / (rect.height || 1);
+  $$('.ed-text', el.edLayers).forEach(n => {
+    const r = n.getBoundingClientRect();
+    const x = (r.left - rect.left) * kx;
+    const y = (r.top - rect.top) * ky;
+    const fs = parseFloat(n.dataset.size) * ky;
+    ctx.save();
+    ctx.globalAlpha = parseFloat(n.dataset.opacity || '1');
+    ctx.translate(x + (r.width * kx) / 2, y + (r.height * ky) / 2);
+    ctx.rotate((+n.dataset.rot || 0) * Math.PI / 180);
+    ctx.font = `${n.dataset.bold === '1' ? '800' : '400'} ${fs}px "Noto Kufi Arabic",system-ui,sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    const metrics = ctx.measureText(n.textContent);
+    if (n.dataset.bg === '1') {
+      ctx.fillStyle = 'rgba(0,0,0,.45)';
+      ctx.fillRect(-metrics.width / 2 - 8, -fs * .72, metrics.width + 16, fs * 1.44);
+    }
+    if (n.dataset.shadow === '1') {
+      ctx.shadowColor = 'rgba(0,0,0,.85)';
+      ctx.shadowBlur = fs * .28;
+      ctx.shadowOffsetY = fs * .07;
+    }
+    ctx.fillStyle = '#fff';
+    ctx.fillText(n.textContent, 0, 0);
+    ctx.restore();
+  });
+
+  // إعادة رسم العلامة المائية على النسخة المحرّرة
+  drawWatermark(ctx, out.width, out.height);
+
+  out.toBlob(async blob => {
+    if (!blob) { toast('تعذّر حفظ التعديلات'); return; }
+    try {
+      const id = await MediaDB.add({
+        type: 'photo', blob, thumb: null, created: Date.now(), fav: false,
+        w: out.width, h: out.height, edited: true, watermark: State.settings.watermark
+      });
+      await updateLastThumb(blob);
+      closeEditor();
+      openPreview({ id, type: 'photo', blob }, true);
+      toast('تم حفظ الصورة المعدّلة ✅');
+    } catch (e) {
+      toast('تعذّر الحفظ محليًا');
+    }
+  }, 'image/jpeg', 0.94);
+}
+
+function closeEditor() {
+  el.editorOverlay.classList.remove('on');
+  if (Editor.url) { URL.revokeObjectURL(Editor.url); Editor.url = null; }
+  Editor.img = null;
+  Editor.layers = [];
+  el.edLayers.innerHTML = '';
+}
+
+/* ============================ 23. GALLERY =============================== */
+let galFilter = 'all';
+let galItems = [];
+
+async function openGallery() {
+  el.galleryOverlay.classList.add('on');
+  await loadGallery();
+}
+
+async function loadGallery() {
+  try {
+    galItems = await MediaDB.all();
+  } catch (e) {
+    galItems = [];
+    el.galGrid.innerHTML = `<div class="gal-empty">تعذّر الوصول إلى التخزين المحلي.<br>قد يكون المتصفح في وضع التصفح الخاص أو التخزين ممتلئ.</div>`;
+    return;
+  }
+
+  let list = galItems;
+  if (galFilter === 'photo') list = list.filter(i => i.type === 'photo');
+  if (galFilter === 'video') list = list.filter(i => i.type === 'video');
+  if (galFilter === 'fav')   list = list.filter(i => i.fav);
+
+  el.galGrid.innerHTML = '';
+  if (!list.length) {
+    el.galGrid.innerHTML = `<div class="gal-empty">
+      لا توجد وسائط بعد.<br>الصور والفيديوهات التي تلتقطها ستُحفظ هنا على جهازك فقط.
+    </div>`;
+    return;
+  }
+
+  const frag = document.createDocumentFragment();
+  for (const item of list) {
+    const d = document.createElement('div');
+    d.className = 'gal-item';
+    const url = URL.createObjectURL(item.blob);
+    if (item.type === 'photo') {
+      const img = document.createElement('img');
+      img.src = url; img.loading = 'lazy'; img.alt = 'صورة';
+      d.appendChild(img);
+    } else {
+      const v = document.createElement('video');
+      v.src = url; v.muted = true; v.playsInline = true; v.preload = 'metadata';
+      d.appendChild(v);
+      const b = document.createElement('span');
+      b.className = 'badge';
+      b.textContent = '🎬 ' + (item.duration ? fmtTime(item.duration) : 'فيديو');
+      d.appendChild(b);
+    }
+    if (item.fav) {
+      const f = document.createElement('span');
+      f.className = 'fav'; f.textContent = '★';
+      d.appendChild(f);
+    }
+    d.addEventListener('click', () => openPreview(item, true));
+    d._url = url;
+    frag.appendChild(d);
+  }
+  el.galGrid.appendChild(frag);
+}
+
+function closeGallery() {
+  el.galleryOverlay.classList.remove('on');
+  $$('#galGrid .gal-item').forEach(n => { if (n._url) URL.revokeObjectURL(n._url); });
+  el.galGrid.innerHTML = '';
+}
+
+/* ============================ 24. TOOLS STRIP =========================== */
+const TOOLS = {
+  normal: [
+    { id: 'filter',   icon: '🎨', label: 'فلتر' },
+    { id: 'ratio',    icon: '⬛', label: 'النسبة' },
+    { id: 'grid',     icon: '⊞',  label: 'الشبكة' },
+    { id: 'timer',    icon: '⏱️', label: 'المؤقت' },
+    { id: 'flash',    icon: '⚡', label: 'الفلاش' },
+    { id: 'quality',  icon: '⚙️', label: 'الجودة' },
+    { id: 'watermark',icon: '💧', label: 'العلامة' }
+  ],
+  cinema: [
+    { id: 'color',    icon: '🎞️', label: 'اللون' },
+    { id: 'wb',       icon: '🌡️', label: 'توازن اللون' },
+    { id: 'fps',      icon: '🎬', label: 'الإطارات' },
+    { id: 'ratio',    icon: '⬛', label: 'النسبة' },
+    { id: 'locks',    icon: '🔒', label: 'الأقفال' },
+    { id: 'stab',     icon: '📐', label: 'التثبيت' },
+    { id: 'grid',     icon: '⊞',  label: 'الأدلة' },
+    { id: 'watermark',icon: '💧', label: 'العلامة' }
+  ],
+  weather: [
+    { id: 'wpreset',  icon: '🌦️', label: 'النمط الجوي' },
+    { id: 'rain',     icon: '🌧️', label: 'طبقة المطر' },
+    { id: 'wadjust',  icon: '🎚️', label: 'الضبط' },
+    { id: 'grid',     icon: '⊞',  label: 'التوجيه' },
+    { id: 'ratio',    icon: '⬛', label: 'النسبة' },
+    { id: 'filter',   icon: '🎨', label: 'فلتر' },
+    { id: 'watermark',icon: '💧', label: 'العلامة' }
+  ],
+  fantasy: [
+    { id: 'fx',       icon: '✨', label: 'التأثيرات' },
+    { id: 'stickers', icon: '😀', label: 'ملصقات' },
+    { id: 'avatar',   icon: '🧑‍🎨', label: 'أفاتار' },
+    { id: 'filter',   icon: '🎨', label: 'فلتر' },
+    { id: 'grid',     icon: '⊞',  label: 'الأدلة' },
+    { id: 'watermark',icon: '💧', label: 'العلامة' }
+  ]
+};
+
+function renderTools() {
+  const list = TOOLS[State.mode] || TOOLS.normal;
+  el.toolStrip.innerHTML = '';
+  list.forEach(t => {
+    const b = document.createElement('button');
+    b.className = 'tool';
+    b.innerHTML = `<span class="ti">${t.icon}</span><span>${t.label}</span>`;
+    b.setAttribute('aria-label', t.label);
+    b.addEventListener('click', () => { haptic(); openTool(t.id); });
+    el.toolStrip.appendChild(b);
+  });
+}
+
+/* ============================ 25. BOTTOM SHEET ========================== */
+function openSheet(title, builder) {
+  el.sheetTitle.textContent = title;
+  el.sheetBody.innerHTML = '';
+  builder(el.sheetBody);
+  el.sheet.classList.add('open');
+}
+function closeSheet() { el.sheet.classList.remove('open'); }
+
+function uiChips(container, items, current, onPick) {
+  const wrap = document.createElement('div');
+  wrap.className = 'chips';
+  items.forEach(it => {
+    const b = document.createElement('button');
+    b.className = 'chip' + (it.v === current ? ' on' : '');
+    b.textContent = it.label;
+    b.addEventListener('click', () => {
+      $$('.chip', wrap).forEach(c => c.classList.remove('on'));
+      b.classList.add('on');
+      onPick(it.v);
+    });
+    wrap.appendChild(b);
+  });
+  container.appendChild(wrap);
+  return wrap;
+}
+
+function uiSection(container, title) {
+  const s = document.createElement('div');
+  s.className = 'sec';
+  if (title) {
+    const t = document.createElement('p');
+    t.className = 'sec-title';
+    t.textContent = title;
+    s.appendChild(t);
+  }
+  container.appendChild(s);
+  return s;
+}
+
+function uiSlider(container, label, min, max, step, value, onInput, suffix = '') {
+  const wrap = document.createElement('div');
+  wrap.className = 'slider-row';
+  wrap.innerHTML = `<div class="lbl"><span>${label}</span><b>${value}${suffix}</b></div>`;
+  const inp = document.createElement('input');
+  inp.type = 'range'; inp.className = 'hz';
+  inp.min = min; inp.max = max; inp.step = step; inp.value = value;
+  const out = wrap.querySelector('b');
+  inp.addEventListener('input', () => {
+    out.textContent = inp.value + suffix;
+    onInput(parseFloat(inp.value));
+  });
+  wrap.appendChild(inp);
+  container.appendChild(wrap);
+  return inp;
+}
+
+function uiSwitch(container, label, value, onChange) {
+  const row = document.createElement('div');
+  row.className = 'switch-row';
+  row.innerHTML = `<span>${label}</span>`;
+  const sw = document.createElement('button');
+  sw.className = 'switch' + (value ? ' on' : '');
+  sw.setAttribute('role', 'switch');
+  sw.setAttribute('aria-checked', value ? 'true' : 'false');
+  sw.addEventListener('click', () => {
+    const v = !sw.classList.contains('on');
+    sw.classList.toggle('on', v);
+    sw.setAttribute('aria-checked', v ? 'true' : 'false');
+    onChange(v);
+  });
+  row.appendChild(sw);
+  container.appendChild(row);
+  return sw;
+}
+
+/* ============================ 26. TOOL HANDLERS ========================= */
+function openTool(id) {
+  switch (id) {
+
+    case 'filter': {
+      openSheet('الفلاتر', body => {
+        const s = uiSection(body, 'اختر فلترًا');
+        const items = Object.keys(FILTERS).map(k => ({ v: k, label: FILTERS[k].ar }));
+        uiChips(s, items, State.filter, v => {
+          State.filter = v;
+          applyPreviewFilter();
+          updateHUD();
+        });
+        const s2 = uiSection(body, 'شدة الفلتر');
+        uiSlider(s2, 'الشدة', 0, 100, 1, State.filterIntensity, v => {
+          State.filterIntensity = v;
+          applyPreviewFilter();
+        }, '%');
+      });
+      break;
+    }
+
+    case 'ratio': {
+      openSheet('نسبة الأبعاد', body => {
+        const s = uiSection(body, 'اختر النسبة');
+        const items = Object.keys(AR).map(k => ({ v: k, label: AR[k].label }));
+        uiChips(s, items, State.aspect, v => {
+          State.aspect = v;
+          layoutFrame();
+          updateHUD();
+        });
+        const n = document.createElement('div');
+        n.className = 'info-note';
+        n.textContent = 'يتم قصّ الصورة الملتقطة لتطابق النسبة المختارة. في وضع الفيديو تُحفظ النسبة كما هي من الكاميرا.';
+        body.appendChild(n);
+      });
+      break;
+    }
+
+    case 'grid': {
+      openSheet('أدلة التركيب', body => {
+        const s = uiSection(body, 'الأدلة النشطة (يمكن تفعيل أكثر من واحد)');
+        const wrap = document.createElement('div');
+        wrap.className = 'chips';
+        Object.keys(GUIDES).forEach(k => {
+          const b = document.createElement('button');
+          b.className = 'chip' + (State.grid.has(k) ? ' on' : '');
+          b.textContent = GUIDES[k].ar;
+          b.addEventListener('click', () => {
+            if (State.grid.has(k)) State.grid.delete(k);
+            else State.grid.add(k);
+            b.classList.toggle('on');
+            renderGuides();
+          });
+          wrap.appendChild(b);
+        });
+        s.appendChild(wrap);
+        const s2 = uiSection(body);
+        uiChips(s2, [{ v: 'clear', label: 'إخفاء الكل' }], '', () => {
+          State.grid.clear();
+          renderGuides();
+          closeSheet();
+        });
+      });
+      break;
+    }
+
+    case 'timer': {
+      openSheet('المؤقت', body => {
+        const s = uiSection(body, 'اختر مدة التأخير');
+        uiChips(s, [
+          { v: 0, label: 'إيقاف' },
+          { v: 3, label: '3 ثوانٍ' },
+          { v: 5, label: '5 ثوانٍ' },
+          { v: 10, label: '10 ثوانٍ' }
+        ], State.timer, v => {
+          State.timer = v;
+          State.settings.timer = v;
+          toast(v ? `المؤقت: ${v} ثانية` : 'المؤقت: مغلق', 1500);
+          updateHUD();
+        });
+      });
+      break;
+    }
+
+    case 'flash': {
+      openSheet('الفلاش', body => {
+        const s = uiSection(body, 'وضع الفلاش');
+        uiChips(s, [
+          { v: 'off', label: 'مغلق' },
+          { v: 'auto', label: 'تلقائي' },
+          { v: 'on', label: 'مفتوح' }
+        ], State.torch, v => {
+          State.settings.flash = v;
+          setTorch(v);
+          updateHUD();
+        });
+        const n = document.createElement('div');
+        n.className = 'info-note';
+        n.textContent = State.torchSupported
+          ? '✅ جهازك يدعم التحكم في الفلاش (Torch) عبر واجهة المتصفح.'
+          : '⚠️ هذا المتصفح/الجهاز لا يوفّر تحكمًا في الفلاش (Torch). عند اختيار "مفتوح" سيستخدم التطبيق وميض الشاشة كبديل، ولن يدّعي تشغيل فلاش حقيقي.';
+        body.appendChild(n);
+      });
+      break;
+    }
+
+    case 'quality': {
+      openSheet('جودة الصورة والكاميرا', body => {
+        const s = uiSection(body, 'دقة الكاميرا (تُطبَّق عند إعادة تشغيل الكاميرا)');
+        uiChips(s, [
+          { v: 'auto', label: 'تلقائي' },
+          { v: '720p', label: '720p' },
+          { v: '1080p', label: '1080p' },
+          { v: '4k', label: '4K (إن دُعم)' }
+        ], State.settings.resolution, async v => {
+          State.settings.resolution = v;
+          toast('إعادة تشغيل الكاميرا لتطبيق الدقة…', 1800);
+          await startCamera(true);
+        });
+
+        const s2 = uiSection(body, 'جودة حفظ الصورة');
+        uiChips(s2, [
+          { v: 'low', label: 'منخفضة' },
+          { v: 'medium', label: 'متوسطة' },
+          { v: 'high', label: 'عالية' }
+        ], State.settings.saveQuality, v => { State.settings.saveQuality = v; });
+
+        const s3 = uiSection(body, 'جودة الفيديو');
+        uiChips(s3, [
+          { v: 'low', label: 'منخفضة' },
+          { v: 'medium', label: 'متوسطة' },
+          { v: 'high', label: 'عالية' }
+        ], State.settings.videoQuality, v => { State.settings.videoQuality = v; });
+      });
+      break;
+    }
+
+    /* ---- العلامة المائية ---- */
+    case 'watermark': {
+      openSheet('العلامة المائية', body => {
+        const s = uiSection(body, 'علامة MAZO CAMERA');
+        uiSwitch(s, 'إظهار العلامة المائية على الصور', State.settings.watermark, v => {
+          State.settings.watermark = v;
+          toast(v ? 'سيتم إضافة العلامة المائية لكل صورة 💧' : 'تم إخفاء العلامة المائية', 2000);
+        });
+        const n = document.createElement('div');
+        n.className = 'info-note';
+        n.innerHTML = `
+          عند تفعيل الخيار، تُرسم علامة مائية أنيقة بشعار MAZO CAMERA
+          (دائرة عدسة ذهبية + الاسم + الشعار العربي) في الزاوية السفلية اليسرى
+          لكل صورة يتم التقاطها، مع خلفية متدرجة شفافة تحفظ وضوح التفاصيل.
+          <br><br>
+          ✅ العلامة تُدمج فعليًا داخل ملف الصورة قبل الحفظ.<br>
+          ✅ تنطبق أيضًا على الصور بعد التعديل في المحرر.<br>
+          ✅ يمكن إيقافها في أي وقت من هذا الزر.
+        `;
+        body.appendChild(n);
+      });
+      break;
+    }
+
+    case 'color': {
+      openSheet('التدرّج اللوني السينمائي', body => {
+        const s = uiSection(body, 'اللون السينمائي');
+        const list = ['natural','cinema','film','warm','cold','vintage','noir','dramatic','sunset'];
+        uiChips(s, list.map(k => ({ v: k, label: FILTERS[k].ar })), State.filter, v => {
+          State.filter = v;
+          State.cinema.color = v;
+          applyPreviewFilter();
+          updateHUD();
+        });
+        const s2 = uiSection(body, 'شدة التدرّج');
+        uiSlider(s2, 'الشدة', 0, 100, 1, State.filterIntensity, v => {
+          State.filterIntensity = v;
+          applyPreviewFilter();
+        }, '%');
+      });
+      break;
+    }
+
+    case 'wb': {
+      openSheet('توازن اللون الأبيض', body => {
+        const s = uiSection(body, 'الإعداد');
+        uiChips(s, [
+          { v: 'auto', label: 'تلقائي' },
+          { v: 'daylight', label: 'نهار ☀️' },
+          { v: 'cloudy', label: 'غائم ☁️' },
+          { v: 'tungsten', label: 'تنجستن 💡' },
+          { v: 'fluorescent', label: 'فلورسنت 🟦' }
+        ], State.cinema.wb, v => {
+          State.cinema.wb = v;
+          applyPreviewFilter();
+          toast('توازن اللون: ' + (v === 'auto' ? 'تلقائي' : v), 1400);
+        });
+        const n = document.createElement('div');
+        n.className = 'info-note';
+        n.textContent = 'ملاحظة: توازن اللون الأبيض هنا محاكاة لونية برمجية (فلتر)، لأن المتصفح لا يوفّر تحكمًا مباشرًا في توازن اللون الأبيض للعتاد.';
+        body.appendChild(n);
+      });
+      break;
+    }
+
+    case 'fps': {
+      openSheet('معدل الإطارات', body => {
+        const s = uiSection(body, 'FPS');
+        const caps = State.capabilities.frameRate || null;
+        const opts = [24, 30, 60].map(f => ({
+          v: f,
+          label: f + ' إطار/ث' + (caps && f > (caps.max || 60) ? ' (غير مدعوم)' : '')
+        }));
+        uiChips(s, opts, State.fps, async v => {
+          State.fps = v;
+          if (State.videoTrack) {
+            try { await State.videoTrack.applyConstraints({ advanced: [{ frameRate: v }] }); }
+            catch (_) { toast('الجهاز قد لا يدعم هذا المعدل بدقة كاملة', 2400); }
+          }
+          updateHUD();
+        });
+        const n = document.createElement('div');
+        n.className = 'info-note';
+        n.textContent = caps
+          ? `نطاق الإطارات المدعوم من الجهاز: ${caps.min} – ${caps.max}`
+          : 'لم يُصرّح المتصفح بنطاق الإطارات المدعوم — سيُستخدم الطلب الأقرب المتاح.';
+        body.appendChild(n);
+      });
+      break;
+    }
+
+    case 'locks': {
+      openSheet('أقفال التركيز والتعريض', body => {
+        const s = uiSection(body, 'الأقفال');
+        uiSwitch(s, '🔒 قفل التركيز (AF Lock)', State.focusLocked, v => {
+          State.focusLocked = v;
+          applyTrackConstraints();
+          updateHUD();
+          toast(v ? 'تم قفل التركيز' : 'تم تحرير التركيز', 1500);
+        });
+        uiSwitch(s, '🔒 قفل التعريض (AE Lock)', State.exposureLocked, v => {
+          State.exposureLocked = v;
+          if (State.videoTrack && State.capabilities.exposureMode) {
+            const mode = v ? 'manual' : 'continuous';
+            State.videoTrack.applyConstraints({ advanced: [{ exposureMode: mode }] }).catch(() => {});
+          }
+          updateHUD();
+          toast(v ? 'تم قفل التعريض' : 'تم تحرير التعريض', 1500);
+        });
+        const s2 = uiSection(body, 'التعريض اليدوي (EV)');
+        uiSlider(s2, 'التعريض', -2, 2, 0.1, State.exposure, v => {
+          el.evSlider.value = v;
+          setExposure(v);
+        });
+        const n = document.createElement('div');
+        n.className = 'info-note';
+        n.textContent = State.capabilities.exposureMode
+          ? 'يدعم جهازك أوضاع تعريض: ' + State.capabilities.exposureMode.join(', ')
+          : 'المتصفح لا يوفّر تحكمًا عتاديًا في التعريض — يتم استخدام محاكاة برمجية على مستوى العرض والالتقاط.';
+        body.appendChild(n);
+      });
+      break;
+    }
+
+    case 'stab': {
+      openSheet('التثبيت الرقمي', body => {
+        const s = uiSection(body, 'التثبيت');
+        uiSwitch(s, 'تثبيت الصورة (محاكاة / إن دُعم)', State.cinema.stabilization, v => {
+          State.cinema.stabilization = v;
+          applyTrackConstraints();
+          toast(v ? 'تم تفعيل التثبيت (إن دعمه الجهاز)' : 'تم إيقاف التثبيت', 1800);
+        });
+        const n = document.createElement('div');
+        n.className = 'info-note';
+        n.textContent = State.capabilities.videoStabilizationMode
+          ? 'أوضاع التثبيت المتاحة: ' + State.capabilities.videoStabilizationMode.join(', ')
+          : 'جهازك/متصفحك لا يوفّر واجهة تثبيت الفيديو. سيتم الاعتماد على تثبيت النظام تلقائيًا إن وُجد.';
+        body.appendChild(n);
+      });
+      break;
+    }
+
+    case 'wpreset': {
+      openSheet('الأنماط الجوية', body => {
+        const s = uiSection(body, 'اختر النمط');
+        const items = Object.keys(WEATHER_PRESETS).map(k => ({ v: k, label: WEATHER_PRESETS[k].ar }));
+        uiChips(s, items, State.weather.preset, v => {
+          applyWeatherPreset(v);
+          updateHUD();
+        });
+        const n = document.createElement('div');
+        n.className = 'info-note';
+        n.textContent = 'الأنماط الجوية تعمل كتحسين لوني وتبايني (تعريض، تباين، تشبّع، حرارة). لا تُضاف أي أمطار وهمية إلى الصورة إلا عند تفعيل "طبقة المطر" صراحةً.';
+        body.appendChild(n);
+      });
+      break;
+    }
+
+    case 'rain': {
+      openSheet('طبقة المطر', body => {
+        const s = uiSection(body, 'التحكم');
+        uiSwitch(s, 'تفعيل طبقة المطر فوق المعاينة والالتقاط', State.weather.rain, v => {
+          State.weather.rain = v;
+          if (v) fxStart(); else fxStop();
+          toast(v ? 'تم تفعيل طبقة المطر — ستظهر في الصورة' : 'تم إيقاف طبقة المطر', 2200);
+        });
+        const n = document.createElement('div');
+        n.className = 'info-note';
+        n.textContent = 'تنبيه: طبقة المطر افتراضيًا مُطفأة. عند تفعيلها صراحةً سيتم دمج تأثير المطر داخل الصورة الملتقطة. عند إطفائها لن يُضاف أي مطر وهمي إطلاقًا.';
+        body.appendChild(n);
+      });
+      break;
+    }
+
+    case 'wadjust': {
+      openSheet('ضبط الوضع الجوي', body => {
+        const w = State.weather;
+        const s = uiSection(body, 'التعريض والتباين');
+        uiSlider(s, 'التعريض', -100, 100, 1, w.exposure, v => { w.exposure = v; applyPreviewFilter(); });
+        uiSlider(s, 'التباين', -100, 100, 1, w.contrast, v => { w.contrast = v / 100; applyPreviewFilter(); });
+        const s2 = uiSection(body, 'الألوان');
+        uiSlider(s2, 'التشبّع', -100, 100, 1, w.saturation, v => { w.saturation = v / 100; applyPreviewFilter(); });
+        uiSlider(s2, 'حرارة اللون', -100, 100, 1, w.temperature, v => { w.temperature = v; applyPreviewFilter(); });
+        const s3 = uiSection(body, 'الإضاءة');
+        uiSlider(s3, 'الإبرازات (محاكاة)', -100, 100, 1, w.highlights, v => { w.highlights = v; applyPreviewFilter(); });
+        uiSlider(s3, 'الظلال (محاكاة)', -100, 100, 1, w.shadows, v => { w.shadows = v; applyPreviewFilter(); });
+      });
+      break;
+    }
+
+    case 'fx': {
+      openSheet('التأثيرات الخيالية', body => {
+        const s = uiSection(body, 'اختر التأثير');
+        const items = Object.keys(FX_TYPES).map(k => ({ v: k, label: FX_TYPES[k].ar }));
+        uiChips(s, items, State.fantasy.effect, v => {
+          State.fantasy.effect = v;
+          if (v === 'none') fxStop(); else fxStart();
+        });
+        const s2 = uiSection(body, 'إعدادات التأثير');
+        uiSlider(s2, 'الشفافية', 0, 100, 1, Math.round(State.fantasy.opacity * 100), v => { State.fantasy.opacity = v / 100; }, '%');
+        uiSlider(s2, 'الحجم', 30, 250, 1, Math.round(State.fantasy.size * 100), v => { State.fantasy.size = v / 100; }, '%');
+        uiSlider(s2, 'الدوران', 0, 360, 1, State.fantasy.rotation, v => { State.fantasy.rotation = v; }, '°');
+        uiSlider(s2, 'سرعة الحركة', 10, 300, 1, Math.round(State.fantasy.speed * 100), v => { State.fantasy.speed = v / 100; }, '%');
+        const s3 = uiSection(body);
+        const b = document.createElement('button');
+        b.className = 'chip';
+        b.style.width = '100%';
+        b.style.padding = '12px';
+        b.textContent = '🧹 حذف كل الملصقات من الشاشة';
+        b.addEventListener('click', () => { clearStickers(); toast('تم حذف الملصقات'); });
+        s3.appendChild(b);
+      });
+      break;
+    }
+
+    case 'stickers': {
+      openSheet('الملصقات', body => {
+        const s = uiSection(body, 'اختر ملصقًا');
+        const emojis = ['⭐','❤️','✨','🌈','🌸','🦋','🎈','🔥','⚡','☁️','🌙','🍀','👑','🎀','💎','🐱','🐶','🦄','🍭','🎵'];
+        const wrap = document.createElement('div');
+        wrap.className = 'chips';
+        emojis.forEach(e => {
+          const b = document.createElement('button');
+          b.className = 'chip';
+          b.style.fontSize = '20px';
+          b.style.padding = '8px 12px';
+          b.textContent = e;
+          b.addEventListener('click', () => { addSticker({ type: 'char', char: e, size: 90 }); haptic(); });
+          wrap.appendChild(b);
+        });
+        s.appendChild(wrap);
+        const s2 = uiSection(body, 'تحكم بالملصق المحدد');
+        uiSlider(s2, 'الحجم', 30, 300, 1, 90, v => updateSelectedSticker({ size: v }));
+        uiSlider(s2, 'الشفافية', 10, 100, 1, 100, v => updateSelectedSticker({ opacity: v / 100 }), '%');
+        uiSlider(s2, 'الدوران', 0, 360, 1, 0, v => updateSelectedSticker({ rot: v }), '°');
+        const s3 = uiSection(body);
+        const del = document.createElement('button');
+        del.className = 'chip';
+        del.style.cssText = 'width:100%;padding:12px;color:#ff8a80';
+        del.textContent = '🗑️ حذف الملصق المحدد';
+        del.addEventListener('click', () => {
+          if (selectedSticker) { selectedSticker.remove(); selectedSticker = null; }
+          else toast('لم يتم تحديد أي ملصق');
+        });
+        s3.appendChild(del);
+      });
+      break;
+    }
+
+    case 'avatar': {
+      openSheet('الأفاتار والصورة المخصّصة', body => {
+        const s = uiSection(body, 'أنماط أفاتار جاهزة');
+        const avatars = ['🧑‍🎨','👩‍🚀','🤖','🦸','🧚','🐯','👽','🎃','🧛','🐼','🦊','👻'];
+        const wrap = document.createElement('div');
+        wrap.className = 'chips';
+        avatars.forEach(a => {
+          const b = document.createElement('button');
+          b.className = 'chip';
+          b.style.fontSize = '22px';
+          b.style.padding = '8px 12px';
+          b.textContent = a;
+          b.addEventListener('click', () => { addSticker({ type: 'char', char: a, size: 110 }); haptic(); });
+          wrap.appendChild(b);
+        });
+        s.appendChild(wrap);
+        const s2 = uiSection(body, 'صورة مخصّصة من جهازك');
+        const inp = document.createElement('input');
+        inp.type = 'file';
+        inp.accept = 'image/*';
+        inp.className = 'sel';
+        inp.addEventListener('change', e => {
+          const f = e.target.files && e.target.files[0];
+          if (!f) return;
+          const url = URL.createObjectURL(f);
+          addSticker({ type: 'img', src: url, size: 130 });
+          toast('تمت إضافة الصورة كملصق — اسحبها لتغيير موضعها', 2600);
+        });
+        s2.appendChild(inp);
+      });
+      break;
+    }
+
+    default:
+      toast('هذه الأداة غير متاحة في هذا الوضع');
+  }
+}
+
+/* ============================ 27. WEATHER PRESETS ======================= */
+const WEATHER_PRESETS = {
+  none:      { ar: 'بدون نمط', w: {} },
+  rain:      { ar: 'مطر 🌧️',   w: { exposure: -6, contrast: 14, saturation: -8, temperature: -18 }, filter: 'rain' },
+  clouds:    { ar: 'سحاب ☁️',  w: { exposure: 4, contrast: 20, saturation: -4, temperature: -6 }, filter: 'natural' },
+  storm:     { ar: 'عاصفة ⛈️', w: { exposure: -14, contrast: 34, saturation: -18, temperature: -12 }, filter: 'storm' },
+  fog:       { ar: 'ضباب 🌫️',  w: { exposure: 8, contrast: -18, saturation: -22, temperature: -4 }, filter: 'natural' },
+  sunset:    { ar: 'غروب 🌅',  w: { exposure: 6, contrast: 14, saturation: 26, temperature: 34 }, filter: 'sunset' },
+  dramatic:  { ar: 'سماء درامية', w: { exposure: -4, contrast: 30, saturation: 8, temperature: 10 }, filter: 'dramatic' },
+  cool:      { ar: 'أجواء باردة', w: { exposure: 2, contrast: 12, saturation: -2, temperature: -30 }, filter: 'cold' }
+};
+
+function applyWeatherPreset(key) {
+  const p = WEATHER_PRESETS[key];
+  if (!p) return;
+  State.weather.preset = key;
+  Object.assign(State.weather, {
+    exposure: 0, contrast: 0, saturation: 0, temperature: 0,
+    highlights: 0, shadows: 0
+  }, p.w);
+  if (p.filter) State.filter = p.filter;
+  applyPreviewFilter();
+  toast('النمط: ' + p.ar, 1600);
+}
+
+/* ============================ 28. MODES ================================= */
+function setMode(mode) {
+  if (State.recording) { toast('أوقف التسجيل قبل تغيير الوضع'); return; }
+  State.mode = mode;
+
+  $$('.mode', el.modeBar).forEach(b => {
+    const on = b.dataset.mode === mode;
+    b.classList.toggle('active', on);
+    b.setAttribute('aria-selected', on ? 'true' : 'false');
+  });
+
+  if (mode === 'cinema') {
+    State.aspect = State.cinema.ratio;
+    if (!State.grid.has('thirds')) State.grid.add('thirds');
+    if (!State.grid.has('cinema')) State.grid.add('cinema');
+    el.shutterBtn.classList.add('rec-mode');
+    el.shutterBtn.setAttribute('aria-label', 'بدء تسجيل الفيديو');
+    applyTrackConstraints();
+  } else {
+    if (mode === 'normal') {
+      State.aspect = State.settings.aspect;
+      el.shutterBtn.setAttribute('aria-label', 'التقاط صورة');
+    }
+    if (mode === 'weather') {
+      State.aspect = '16:9';
+      State.grid.add('thirds');
+      if (!State.grid.has('center')) State.grid.add('center');
+    }
+    if (mode === 'fantasy') {
+      State.aspect = '4:3';
+    }
+    el.shutterBtn.classList.remove('rec-mode');
+  }
+
+  layoutFrame();
+  renderGuides();
+  renderTools();
+  applyPreviewFilter();
+  fxActiveType() ? fxStart() : fxStop();
+  updateHUD();
+  haptic(10);
+}
+
+/* ============================ 29. SETTINGS SHEET ======================== */
+async function openSettings() {
+  await listCameras();
+
+  openSheet('الإعدادات', body => {
+    const s1 = uiSection(body, 'الكاميرا');
+    const camSel = document.createElement('select');
+    camSel.className = 'sel';
+    if (!State.devices.length) {
+      const o = document.createElement('option');
+      o.textContent = 'لا توجد كاميرات مُصرّح بها بعد';
+      camSel.appendChild(o);
+    } else {
+      State.devices.forEach((d, i) => {
+        const o = document.createElement('option');
+        o.value = d.deviceId;
+        o.textContent = d.label || `كاميرا ${i + 1}`;
+        if (d.deviceId === State.deviceId) o.selected = true;
+        camSel.appendChild(o);
+      });
+    }
+    camSel.addEventListener('change', async () => {
+      State.deviceId = camSel.value;
+      await startCamera(true);
+      toast('تم تبديل الكاميرا');
+    });
+    s1.appendChild(camSel);
+
+    const s2 = uiSection(body, 'الدقة والنسبة');
+    const s2a = document.createElement('p');
+    s2a.className = 'sec-title';
+    s2a.textContent = 'دقة الكاميرا';
+    s2.appendChild(s2a);
+    uiChips(s2, [
+      { v: 'auto', label: 'تلقائي' },
+      { v: '720p', label: '720p' },
+      { v: '1080p', label: '1080p' },
+      { v: '4k', label: '4K' }
+    ], State.settings.resolution, v => { State.settings.resolution = v; });
+
+    const s2b = document.createElement('p');
+    s2b.className = 'sec-title';
+    s2b.style.marginTop = '14px';
+    s2b.textContent = 'نسبة الأبعاد الافتراضية';
+    s2.appendChild(s2b);
+    uiChips(s2, Object.keys(AR).map(k => ({ v: k, label: AR[k].label })), State.settings.aspect, v => {
+      State.settings.aspect = v;
+      State.aspect = v;
+      layoutFrame();
+    });
+
+    const s3 = uiSection(body, 'معدل الإطارات (للفيديو)');
+    uiChips(s3, [{ v: 24, label: '24' }, { v: 30, label: '30' }, { v: 60, label: '60' }], State.fps, v => {
+      State.fps = v;
+      if (State.videoTrack) State.videoTrack.applyConstraints({ advanced: [{ frameRate: v }] }).catch(() => {});
+    });
+
+    const s4 = uiSection(body, 'الأدلة والمؤقت');
+    uiSwitch(s4, 'شبكة الثُلث', State.grid.has('thirds'), v => {
+      v ? State.grid.add('thirds') : State.grid.delete('thirds');
+      renderGuides();
+    });
+    const timerP = document.createElement('p');
+    timerP.className = 'sec-title';
+    timerP.style.marginTop = '12px';
+    timerP.textContent = 'المؤقت';
+    s4.appendChild(timerP);
+    uiChips(s4, [{ v: 0, label: 'إيقاف' }, { v: 3, label: '3s' }, { v: 5, label: '5s' }, { v: 10, label: '10s' }],
+      State.timer, v => { State.timer = v; State.settings.timer = v; });
+
+    const s5 = uiSection(body, 'الفلاش');
+    uiChips(s5, [
+      { v: 'off', label: 'مغلق' },
+      { v: 'auto', label: 'تلقائي' },
+      { v: 'on', label: 'مفتوح' }
+    ], State.torch, v => { State.settings.flash = v; setTorch(v); });
+
+    const s6 = uiSection(body, 'الصورة والصوت');
+    uiSwitch(s6, 'مرآة السيلفي', State.settings.mirror, v => {
+      State.settings.mirror = v;
+      applyMirror();
+    });
+    uiSwitch(s6, 'تسجيل الصوت', State.settings.audio, v => { State.settings.audio = v; });
+    uiSwitch(s6, 'تنعيم خفيف للكاميرا الأمامية (محاكاة)', State.beauty > 0, v => {
+      State.beauty = v ? 35 : 0;
+      applyPreviewFilter();
+    });
+    uiSwitch(s6, '💧 العلامة المائية MAZO على الصور', State.settings.watermark, v => {
+      State.settings.watermark = v;
+    });
+
+    const s7 = uiSection(body, 'الواجهة');
+    uiSwitch(s7, 'الاهتزاز اللمسي', State.settings.haptics, v => { State.settings.haptics = v; });
+    uiSwitch(s7, 'أصوات الواجهة', State.settings.uiSound, v => { State.settings.uiSound = v; });
+
+    const s8 = uiSection(body, 'اللغة');
+    uiChips(s8, [{ v: 'ar', label: 'العربية' }, { v: 'en', label: 'English (قيد الإضافة)' }],
+      State.settings.language, v => {
+        State.settings.language = v;
+        if (v !== 'ar') toast('الواجهة العربية هي الأساسية حاليًا');
+      });
+
+    const s9 = uiSection(body, 'دعم الجهاز');
+    const info = document.createElement('div');
+    info.className = 'info-note';
+    info.innerHTML = `
+      الفلاش (Torch): ${State.torchSupported ? '✅ مدعوم' : '❌ غير مدعوم'}<br>
+      التكبير العتادي: ${State.hwZoom ? '✅ مدعوم' : 'ℹ️ تكبير رقمي فقط'}<br>
+      التعريض العتادي: ${State.hwExposure ? '✅ مدعوم' : 'ℹ️ محاكاة برمجية'}<br>
+      أنواع الفيديو المدعومة: ${bestMimeType() || 'غير متاح'}<br>
+      عدد الكاميرات: ${State.devices.length || '—'}
+    `;
+    s9.appendChild(info);
+  });
+}
+
+/* ============================ 30. GESTURES ============================== */
+let tapTimer = null;
+let pinchStartDist = 0, pinchStartZoom = 1;
+
+function setupGestures() {
+  const stage = el.stage;
+
+  stage.addEventListener('click', e => {
+    if (e.target.closest('#zoomChips') || e.target.closest('#evWrap')) return;
+    if (!State.stream) return;
+    if (e.target.closest('.sticker')) return;
+
+    const x = e.clientX, y = e.clientY;
+
+    if (tapTimer) {
+      clearTimeout(tapTimer);
+      tapTimer = null;
+      el.focusRing.classList.remove('active');
+      switchCamera();
+      return;
+    }
+
+    focusAt(x, y);
+    tapTimer = setTimeout(() => {
+      tapTimer = null;
+      toggleUI();
+    }, 280);
+  });
+
+  stage.addEventListener('touchstart', e => {
+    if (e.touches.length === 2) {
+      const [a, b] = e.touches;
+      pinchStartDist = Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY);
+      pinchStartZoom = State.zoom;
+    }
+  }, { passive: true });
+
+  stage.addEventListener('touchmove', e => {
+    if (e.touches.length === 2 && pinchStartDist > 0) {
+      e.preventDefault();
+      const [a, b] = e.touches;
+      const d = Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY);
+      const ratio = d / pinchStartDist;
+      setZoom(clamp(pinchStartZoom * ratio, 0.5, 8));
+    }
+  }, { passive: false });
+
+  stage.addEventListener('touchend', () => { pinchStartDist = 0; }, { passive: true });
+
+  let sx = 0, sy = 0, tracking = false;
+  const modes = ['normal', 'cinema', 'weather', 'fantasy'];
+
+  stage.addEventListener('touchstart', e => {
+    if (e.touches.length !== 1) { tracking = false; return; }
+    sx = e.touches[0].clientX;
+    sy = e.touches[0].clientY;
+    tracking = true;
+  }, { passive: true });
+
+  stage.addEventListener('touchend', e => {
+    if (!tracking) return;
+    tracking = false;
+    const t = e.changedTouches[0];
+    const dx = t.clientX - sx;
+    const dy = t.clientY - sy;
+    if (Math.abs(dx) > 70 && Math.abs(dx) > Math.abs(dy) * 1.6) {
+      const idx = modes.indexOf(State.mode);
+      const next = dx > 0 ? Math.max(0, idx - 1) : Math.min(modes.length - 1, idx + 1);
+      if (next !== idx) setMode(modes[next]);
+    }
+  }, { passive: true });
+
+  let lpTimer = null;
+  stage.addEventListener('touchstart', e => {
+    if (e.touches.length !== 1) return;
+    lpTimer = setTimeout(() => { toggleUI(); haptic(); }, 700);
+  }, { passive: true });
+  ['touchend', 'touchmove', 'touchcancel'].forEach(ev =>
+    stage.addEventListener(ev, () => clearTimeout(lpTimer), { passive: true }));
+
+  window.addEventListener('resize', () => { layoutFrame(); if (Editor.img) renderEditor(); });
+  window.addEventListener('orientationchange', () => setTimeout(layoutFrame, 260));
+}
+
+function toggleUI() {
+  State.uiHidden = !State.uiHidden;
+  el.dock.classList.toggle('hide', State.uiHidden);
+  el.topbar.classList.toggle('hide', State.uiHidden);
+  $('#zoomChips').style.opacity = State.uiHidden ? '0' : '1';
+  $('#zoomChips').style.pointerEvents = State.uiHidden ? 'none' : 'auto';
+  $('#evWrap').style.opacity = State.uiHidden ? '0' : '1';
+  $('#evWrap').style.pointerEvents = State.uiHidden ? 'none' : 'auto';
+}
+
+/* ============================ 31. UI WIRING ============================= */
+function wireUI() {
+  el.startBtn.addEventListener('click', async () => {
+    el.startBtn.textContent = 'جارٍ التشغيل…';
+    el.startBtn.disabled = true;
+    const ok = await startCamera();
+    el.startBtn.disabled = false;
+    el.startBtn.textContent = 'تشغيل الكاميرا';
+    if (!ok) el.startOverlay.classList.add('hidden');
+  });
+
+  el.permRetry.addEventListener('click', async () => {
+    el.permError.classList.remove('on');
+    const ok = await startCamera(true);
+    if (!ok) el.startOverlay.classList.remove('hidden');
+  });
+
+  el.shutterBtn.addEventListener('pointerdown', e => { e.preventDefault(); onShutterDown(); });
+  el.shutterBtn.addEventListener('pointerup', e => { e.preventDefault(); onShutterUp(); });
+  el.shutterBtn.addEventListener('pointercancel', () => clearTimeout(pressTimer));
+  el.shutterBtn.addEventListener('pointerleave', () => clearTimeout(pressTimer));
+
+  el.pauseBtn.addEventListener('click', pauseRecording);
+  el.switchBtn.addEventListener('click', switchCamera);
+  el.galleryBtn.addEventListener('click', openGallery);
+
+  el.modeBar.addEventListener('click', e => {
+    const b = e.target.closest('.mode');
+    if (!b) return;
+    setMode(b.dataset.mode);
+  });
+
+  el.settingsBtn.addEventListener('click', openSettings);
+
+  el.aboutBtn.addEventListener('click', () => el.aboutSheet.classList.add('open'));
+  el.aboutClose.addEventListener('click', () => el.aboutSheet.classList.remove('open'));
+
+  el.sheetClose.addEventListener('click', closeSheet);
+  el.sheet.addEventListener('click', e => { if (e.target === el.sheet) closeSheet(); });
+
+  el.evSlider.addEventListener('input', () => setExposure(el.evSlider.value));
+
+  el.pvClose.addEventListener('click', closePreview);
+  el.pvRetake.addEventListener('click', () => {
+    const rec = currentPreview;
+    if (rec && rec.id && !rec.saved) MediaDB.remove(rec.id).catch(() => {});
+    closePreview();
+  });
+
+  el.pvSave.addEventListener('click', async () => {
+    if (!currentPreview) return;
+    const ext = currentPreview.type === 'photo' ? 'jpg' : extFor(currentPreview.blob.type);
+    await downloadBlob(currentPreview.blob, `MAZO_${Date.now()}.${ext}`);
+    toast('تم التنزيل ✅');
+  });
+
+  el.pvShare.addEventListener('click', async () => {
+    if (!currentPreview) return;
+    const ext = currentPreview.type === 'photo' ? 'jpg' : extFor(currentPreview.blob.type);
+    await shareBlob(currentPreview.blob, `MAZO_${Date.now()}.${ext}`);
+  });
+
+  el.pvDelete.addEventListener('click', async () => {
+    if (!currentPreview) return;
+    if (currentPreview.id) {
+      try { await MediaDB.remove(currentPreview.id); } catch (_) {}
+    }
+    closePreview();
+    toast('تم الحذف');
+    await loadLastThumbFromGallery();
+  });
+
+  el.pvFav.addEventListener('click', async () => {
+    if (!currentPreview || !currentPreview.id) { toast('لا يمكن الحفظ في المفضلة'); return; }
+    const item = await MediaDB.get(currentPreview.id);
+    if (!item) return;
+    item.fav = !item.fav;
+    await MediaDB.put(item);
+    el.pvFav.textContent = item.fav ? '★' : '☆';
+    currentPreview.fav = item.fav;
+    toast(item.fav ? 'أُضيف إلى المفضلة ★' : 'أُزيل من المفضلة');
+  });
+
+  el.pvEdit.addEventListener('click', () => {
+    if (!currentPreview || currentPreview.type !== 'photo') return;
+    openEditorFromBlob(currentPreview.blob);
+  });
+
+  el.galClose.addEventListener('click', closeGallery);
+  el.galInfo.addEventListener('click', () => {
+    toast('كل الوسائط محفوظة محليًا في متصفحك فقط (IndexedDB) — لا يتم رفع أي شيء إلى الإنترنت.', 4200);
+  });
+  $$('[data-gal]').forEach(b => {
+    b.addEventListener('click', () => {
+      $$('[data-gal]').forEach(x => x.classList.remove('on'));
+      b.classList.add('on');
+      galFilter = b.dataset.gal;
+      loadGallery();
+    });
+  });
+
+  el.edCancel.addEventListener('click', closeEditor);
+  el.edSave.addEventListener('click', saveEditor);
+
+  $$('#edTabs .ed-tab').forEach(t => {
+    t.addEventListener('click', () => {
+      $$('#edTabs .ed-tab').forEach(x => x.classList.remove('on'));
+      t.classList.add('on');
+      $$('.ed-panel').forEach(p => p.classList.remove('on'));
+      const p = $('#panel-' + t.dataset.panel);
+      if (p) p.classList.add('on');
+    });
+  });
+
+  const adjMap = [
+    ['e_bri', 'bri', 'v_bri'], ['e_con', 'con', 'v_con'], ['e_sat', 'sat', 'v_sat'],
+    ['e_tem', 'tem', 'v_tem'], ['e_blur', 'blur', 'v_blur'], ['e_sharp', 'sharp', 'v_sharp'],
+    ['e_vig', 'vig', 'v_vig'], ['e_grain', 'grain', 'v_grain']
+  ];
+  adjMap.forEach(([id, key, out]) => {
+    const inp = $('#' + id);
+    if (!inp) return;
+    inp.addEventListener('input', () => {
+      Editor.adj[key] = parseFloat(inp.value);
+      const o = $('#' + out);
+      if (o) o.textContent = inp.value;
+      el.edCanvas.style.filter = editorFilterCSS();
+    });
+  });
+
+  const fint = $('#e_fint');
+  if (fint) fint.addEventListener('input', () => {
+    Editor.filterIntensity = parseFloat(fint.value);
+    $('#v_fint').textContent = fint.value + '%';
+    el.edCanvas.style.filter = editorFilterCSS();
+  });
+
+  const edChips = $('#edFilterChips');
+  if (edChips) {
+    Object.keys(FILTERS).forEach(k => {
+      const b = document.createElement('button');
+      b.className = 'chip mini' + (k === 'natural' ? ' on' : '');
+      b.textContent = FILTERS[k].ar;
+      b.addEventListener('click', () => {
+        $$('.chip', edChips).forEach(x => x.classList.remove('on'));
+        b.classList.add('on');
+        Editor.filter = k;
+        el.edCanvas.style.filter = editorFilterCSS();
+      });
+      edChips.appendChild(b);
+    });
+  }
+
+  const edSt = $('#edStickerChips');
+  if (edSt) {
+    ['⭐','❤️','✨','🌸','🎈','🔥','👑','💎','😎','🦋','🌈','🎀'].forEach(e => {
+      const b = document.createElement('button');
+      b.className = 'chip mini';
+      b.style.fontSize = '18px';
+      b.textContent = e;
+      b.addEventListener('click', () => {
+        const n = document.createElement('div');
+        n.className = 'ed-text';
+        n.textContent = e;
+        n.dataset.size = 46; n.dataset.rot = 0; n.dataset.opacity = 1;
+        n.dataset.bold = 0; n.dataset.shadow = 0; n.dataset.bg = 0;
+        n.style.fontSize = '46px';
+        n.style.left = '35%'; n.style.top = '40%';
+        el.edLayers.appendChild(n);
+        makeEdTextDraggable(n);
+        selectEdLayer(n);
+      });
+      edSt.appendChild(b);
+    });
+  }
+
+  const edCrop = $('#edCropChips');
+  if (edCrop) {
+    [['حر','null'], ['1:1','1'], ['4:3','1.3333'], ['3:2','1.5'], ['16:9','1.7778'], ['9:16','0.5625']]
+      .forEach(([label, val]) => {
+        const b = document.createElement('button');
+        b.className = 'chip mini' + (val === 'null' ? ' on' : '');
+        b.textContent = label;
+        b.addEventListener('click', () => {
+          $$('.chip', edCrop).forEach(x => x.classList.remove('on'));
+          b.classList.add('on');
+          Editor.cropAR = val === 'null' ? null : parseFloat(val);
+          renderEditor();
+        });
+        edCrop.appendChild(b);
+      });
+  }
+
+  $$('[data-tr]').forEach(b => {
+    b.addEventListener('click', () => {
+      const t = b.dataset.tr;
+      if (t === 'rot90') Editor.rot = (Editor.rot + 90) % 360;
+      if (t === 'fliph') Editor.flipH = !Editor.flipH;
+      if (t === 'flipv') Editor.flipV = !Editor.flipV;
+      if (t === 'reset') {
+        Editor.rot = 0; Editor.flipH = false; Editor.flipV = false;
+        Editor.cropAR = null;
+        Editor.adj = { bri: 0, con: 0, sat: 0, tem: 0, blur: 0, sharp: 0, vig: 0, grain: 0 };
+        Editor.filter = 'natural'; Editor.filterIntensity = 100;
+        adjMap.forEach(([id, , out]) => {
+          const i = $('#' + id); if (i) i.value = 0;
+          const o = $('#' + out); if (o) o.textContent = '0';
+        });
+      }
+      renderEditor();
+    });
+  });
+
+  $('#edAddText').addEventListener('click', () => addEditorText($('#edTextInput').value));
+  $$('[data-tf]').forEach(b => b.addEventListener('click', () => edTextCmd(b.dataset.tf)));
+  const eTop = $('#e_top');
+  if (eTop) eTop.addEventListener('input', () => {
+    $('#v_top').textContent = eTop.value + '%';
+    if (selectedEdLayer) {
+      selectedEdLayer.dataset.opacity = eTop.value / 100;
+      selectedEdLayer.style.opacity = eTop.value / 100;
+    }
+  });
+
+  document.addEventListener('keydown', e => {
+    if (e.key === 'Escape') {
+      if (el.editorOverlay.classList.contains('on')) closeEditor();
+      else if (el.galleryOverlay.classList.contains('on')) closeGallery();
+      else if (el.previewOverlay.classList.contains('on')) closePreview();
+      else if (el.sheet.classList.contains('open')) closeSheet();
+      else if (el.aboutSheet.classList.contains('open')) el.aboutSheet.classList.remove('open');
+    }
+    if (e.code === 'Space' && !el.editorOverlay.classList.contains('on')
+        && !el.galleryOverlay.classList.contains('on')) {
+      e.preventDefault();
+      if (State.mode === 'cinema') { State.recording ? stopRecording() : startRecording(); }
+      else if (!State.recording) capturePhoto();
+    }
+  });
+
+  if (window.ResizeObserver) {
+    new ResizeObserver(() => { layoutFrame(); }).observe(el.stage);
+  }
+
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) {
+      FX.running = false;
+      cancelAnimationFrame(FX.raf);
+    } else if (fxActiveType()) {
+      fxStart();
+    }
+  });
+
+  window.addEventListener('pagehide', () => {
+    stopCamera();
+    if (State.recorder && State.recording) { try { State.recorder.stop(); } catch (_) {} }
+    if (audioCtx) { try { audioCtx.close(); } catch (_) {} }
+  });
+}
+
+/* ============================ 32. LAST THUMB ============================ */
+async function loadLastThumbFromGallery() {
+  try {
+    const items = await MediaDB.all();
+    if (!items.length) {
+      el.lastThumb.classList.add('empty');
+      el.galIcon.style.display = '';
+      return;
+    }
+    const last = items[0];
+    await updateLastThumb(last.blob);
+  } catch (_) {}
+}
+
+/* ============================ 33. AUTO PERMISSION ON LOAD =============== */
+/* طلب الأذونات تلقائيًا فور فتح التطبيق.
+   ملاحظة: بعض المتصفحات (iOS Safari خصوصًا) تتطلب تفاعلًا مباشرًا من المستخدم،
+   لذلك نُخفي شاشة البدء إذا نجح الطلب التلقائي، ونُبقي الزر كخيار احتياطي. */
+async function autoRequestPermissions() {
+  // محاولة صامتة لطلب الكاميرا تلقائيًا
+  const ok = await startCamera(true);
+
+  if (ok) {
+    // نجح الطلب التلقائي — إخفاء شاشة البدء
+    el.startOverlay.classList.add('hidden');
+    toast('تم تفعيل الأذونات تلقائيًا ✅', 2200);
+  } else {
+    // فشل الطلب التلقائي (غالبًا بسبب قيود المتصفح) — إظهار الزر كخيار
+    el.startOverlay.classList.remove('hidden');
+    el.startBtn.textContent = 'تشغيل الكاميرا';
+    el.startBtn.disabled = false;
+  }
+}
+
+/* ============================ 34. INIT ================================== */
+async function init() {
+  layoutFrame();
+  renderGuides();
+  renderTools();
+  wireUI();
+  setupGestures();
+  updateZoomChips();
+  setExposure(0);
+
+  // عرض معلومات الدعم
+  const support = [];
+  support.push(navigator.mediaDevices && navigator.mediaDevices.getUserMedia
+    ? '✅ واجهة الكاميرا مدعومة'
+    : '❌ واجهة الكاميرا غير مدعومة في هذا المتصفح');
+  support.push(window.MediaRecorder ? '✅ تسجيل الفيديو مدعوم' : '⚠️ تسجيل الفيديو غير مدعوم');
+  support.push('indexedDB' in window ? '✅ التخزين المحلي مدعوم' : '⚠️ التخزين المحلي غير مدعوم');
+  support.push(location.protocol === 'https:' || location.hostname === 'localhost'
+    ? '✅ اتصال آمن'
+    : '⚠️ يجب فتح الصفحة عبر HTTPS أو localhost لتشغيل الكاميرا');
+  el.capsInfo.innerHTML = support.join('<br>');
+
+  await loadLastThumbFromGallery();
+  applyPreviewFilter();
+  updateHUD();
+
+  document.body.addEventListener('touchmove', e => {
+    if (e.target.closest('.body, #galGrid, .tools, .modes, #edTools, .ed-tabs')) return;
+    if (e.touches.length > 1) return;
+  }, { passive: true });
+
+  console.log('%cMAZO CAMERA', 'color:#e6c47a;font-weight:700;font-size:14px', '— صوّرها بطريقتك 📸');
+
+  // ✅ طلب الأذونات تلقائيًا فور فتح التطبيق
+  await autoRequestPermissions();
+}
+
+document.addEventListener('DOMContentLoaded', init);
+</script>
+</body>
+</html>
